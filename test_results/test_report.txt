@@ -1,0 +1,11 @@
+======================================================================
+CVE-CPE VULNERABILITY SCANNER - TEST REPORT
+======================================================================
+
+Total Tests: 2
+Passed: 1
+Failed: 1
+
+Details:
+  cpe_extractor: FAILED
+  api: PASSED

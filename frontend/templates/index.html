@@ -1,0 +1,189 @@
+<!-- frontend/templates/index.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVE-CPE Vulnerability Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-shield-alt"></i>
+                    <h1>CVE-CPE Vulnerability Scanner</h1>
+                </div>
+                <p class="subtitle">Công cụ đánh giá lỗ hổng phần mềm - NVD Database</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="showTab('upload')">
+                    <i class="fas fa-upload"></i> Upload File
+                </button>
+                <button class="tab-btn" onclick="showTab('search')">
+                    <i class="fas fa-search"></i> Search Software
+                </button>
+                <button class="tab-btn" onclick="showTab('cpe')">
+                    <i class="fas fa-code"></i> Query CPE
+                </button>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="upload-tab" class="tab-content active">
+                <div class="upload-section">
+                    <div class="upload-box" id="uploadBox">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop File Here</h3>
+                        <p>or click to browse</p>
+                        <input type="file" id="fileInput" accept=".exe,.dll,.sys" hidden>
+                        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                    
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <h4><i class="fas fa-file"></i> Selected File</h4>
+                        <p id="fileName"></p>
+                        <button class="btn btn-success" onclick="scanFile()">
+                            <i class="fas fa-search"></i> Analyze File
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="search-tab" class="tab-content">
+                <div class="search-section">
+                    <div class="search-form">
+                        <div class="form-group">
+                            <label><i class="fas fa-laptop-code"></i> Software Name *</label>
+                            <input type="text" id="softwareName" placeholder="e.g., WinRAR, Apache, OpenSSL" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-tag"></i> Version (Optional)</label>
+                            <input type="text" id="softwareVersion" placeholder="e.g., 6.0, 2.4.49">
+                        </div>
+                        <button class="btn btn-primary" onclick="searchSoftware()">
+                            <i class="fas fa-search"></i> Search Vulnerabilities
+                        </button>
+                    </div>
+                    
+                    <div class="search-examples">
+                        <h4>Quick Examples:</h4>
+                        <button class="btn-example" onclick="setExample('WinRAR', '6.0')">WinRAR 6.0</button>
+                        <button class="btn-example" onclick="setExample('Apache HTTP Server', '2.4.49')">Apache 2.4.49</button>
+                        <button class="btn-example" onclick="setExample('OpenSSL', '1.0.1')">OpenSSL 1.0.1</button>
+                        <button class="btn-example" onclick="setExample('MySQL', '5.7.20')">MySQL 5.7.20</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CPE Query Tab -->
+            <div id="cpe-tab" class="tab-content">
+                <div class="cpe-section">
+                    <div class="form-group">
+                        <label><i class="fas fa-code"></i> CPE String</label>
+                        <input type="text" id="cpeString" placeholder="cpe:2.3:a:rarlab:winrar:-:*:*:*:*:*:*:*">
+                        <small>Format: cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*</small>
+                    </div>
+                    <button class="btn btn-primary" onclick="queryCPE()">
+                        <i class="fas fa-search"></i> Query CVEs
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Analyzing...</p>
+            </div>
+
+            <!-- Results -->
+            <div class="results" id="results" style="display: none;">
+                <!-- Software Info -->
+                <div class="result-header">
+                    <h2><i class="fas fa-info-circle"></i> Scan Results</h2>
+                    <div class="cpe-display">
+                        <strong>CPE:</strong> <code id="resultCPE"></code>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <i class="fas fa-bug"></i>
+                        <h3 id="statTotal">0</h3>
+                        <p>Total CVEs</p>
+                    </div>
+                    <div class="stat-card critical">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3 id="statCritical">0</h3>
+                        <p>Critical</p>
+                    </div>
+                    <div class="stat-card high">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <h3 id="statHigh">0</h3>
+                        <p>High</p>
+                    </div>
+                    <div class="stat-card medium">
+                        <i class="fas fa-minus-circle"></i>
+                        <h3 id="statMedium">0</h3>
+                        <p>Medium</p>
+                    </div>
+                    <div class="stat-card low">
+                        <i class="fas fa-check-circle"></i>
+                        <h3 id="statLow">0</h3>
+                        <p>Low</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-chart-line"></i>
+                        <h3 id="statAvgCVSS">0</h3>
+                        <p>Avg CVSS</p>
+                    </div>
+                </div>
+
+                <!-- Vulnerabilities List -->
+                <div class="vulnerabilities">
+                    <h3><i class="fas fa-list"></i> Vulnerabilities Found</h3>
+                    <div id="cveList"></div>
+                </div>
+
+                <!-- Export Options -->
+                <div class="export-section">
+                    <button class="btn btn-secondary" onclick="exportJSON()">
+                        <i class="fas fa-download"></i> Export JSON
+                    </button>
+                    <button class="btn btn-secondary" onclick="exportCSV()">
+                        <i class="fas fa-file-csv"></i> Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error -->
+            <div class="error" id="error" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p id="errorMessage"></p>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 CVE-CPE Vulnerability Scanner | Capstone Project FPTU</p>
+            <p><a href="https://github.com/arguio/SoftwareCPE-CVEMatcher" target="_blank">
+                <i class="fab fa-github"></i> GitHub
+            </a></p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
