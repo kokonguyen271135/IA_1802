@@ -864,3 +864,125 @@ body {
 }
 
 .string-item:last-child { border-bottom: none; }
+
+/* ── AI Analysis Panel ────────────────────────────────────────────────────── */
+
+.ai-panel {
+    border: 2px solid #a78bfa;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 20px 0;
+    background: #faf5ff;
+    transition: border-color 0.3s;
+}
+
+.ai-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #4c1d95;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.ai-panel-header i {
+    font-size: 20px;
+    color: #7c3aed;
+}
+
+.ai-risk-badge {
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #fff;
+    background: #7c3aed;
+}
+
+.ai-powered-tag {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: #7c3aed;
+    background: #ede9fe;
+    padding: 2px 10px;
+    border-radius: 20px;
+    border: 1px solid #c4b5fd;
+}
+
+.ai-risk-summary {
+    color: #374151;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.7);
+    border-radius: 8px;
+    border-left: 4px solid #7c3aed;
+}
+
+.ai-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 768px) {
+    .ai-columns { grid-template-columns: 1fr; }
+}
+
+.ai-col h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #6d28d9;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ai-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.ai-list li {
+    font-size: 13px;
+    color: #374151;
+    padding: 5px 0 5px 14px;
+    position: relative;
+    line-height: 1.4;
+    border-bottom: 1px solid rgba(139,92,246,0.1);
+}
+
+.ai-list li:last-child { border-bottom: none; }
+
+.ai-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #7c3aed;
+    font-weight: 700;
+}
+
+.ai-vectors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.ai-vector-tag {
+    display: inline-block;
+    padding: 4px 12px;
+    background: #ede9fe;
+    color: #5b21b6;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #c4b5fd;
+}

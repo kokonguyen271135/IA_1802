@@ -200,13 +200,13 @@ function setExample(name, version) {
 // Display results
 function displayResults(data) {
     currentResults = data;
-    
+
     // Show results section
     document.getElementById('results').style.display = 'block';
-    
+
     // Display CPE
     document.getElementById('resultCPE').textContent = data.cpe || 'N/A';
-    
+
     // Display statistics
     const stats = data.statistics;
     document.getElementById('statTotal').textContent = stats.total_cves;
@@ -215,23 +215,86 @@ function displayResults(data) {
     document.getElementById('statMedium').textContent = stats.by_severity.MEDIUM || 0;
     document.getElementById('statLow').textContent = stats.by_severity.LOW || 0;
     document.getElementById('statAvgCVSS').textContent = stats.avg_cvss.toFixed(1);
-    
+
+    // ── AI Analysis panel ──────────────────────────────────────────────────
+    renderAiPanel(data.ai_analysis, 'aiAnalysisPanel', 'aiOverallRiskBadge',
+                  'aiRiskSummary', 'aiTopThreats', 'aiRecommendations', 'aiAttackVectors');
+
     // Display CVE list
     const cveList = document.getElementById('cveList');
     cveList.innerHTML = '';
-    
+
     if (data.vulnerabilities.length === 0) {
         cveList.innerHTML = '<p style="text-align: center; padding: 40px; color: #10b981;">No vulnerabilities found!</p>';
         return;
     }
-    
+
     data.vulnerabilities.forEach(cve => {
         const cveItem = createCVEItem(cve);
         cveList.appendChild(cveItem);
     });
-    
+
     // Scroll to results
     document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ── AI panel renderer ──────────────────────────────────────────────────────
+const AI_RISK_COLORS = {
+    CRITICAL: { bg: '#fce7f3', border: '#db2777', text: '#831843', badge: '#db2777' },
+    HIGH:     { bg: '#fff7ed', border: '#f97316', text: '#7c2d12', badge: '#f97316' },
+    MEDIUM:   { bg: '#fefce8', border: '#eab308', text: '#713f12', badge: '#eab308' },
+    LOW:      { bg: '#f0fdf4', border: '#22c55e', text: '#14532d', badge: '#22c55e' },
+};
+
+function renderAiPanel(ai, panelId, riskBadgeId, summaryId, threatsId, recsId, vectorsId) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+
+    if (!ai || !ai.success) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const colors = AI_RISK_COLORS[ai.overall_risk] || AI_RISK_COLORS.MEDIUM;
+
+    // Style the panel border
+    panel.style.borderColor = colors.border;
+    panel.style.background  = colors.bg;
+
+    // Overall risk badge
+    const badge = document.getElementById(riskBadgeId);
+    if (badge) {
+        badge.textContent = ai.overall_risk;
+        badge.style.background = colors.badge;
+        badge.style.color = '#fff';
+    }
+
+    // Risk summary
+    const summaryEl = document.getElementById(summaryId);
+    if (summaryEl) summaryEl.textContent = ai.risk_summary || '';
+
+    // Top threats
+    const threatsEl = document.getElementById(threatsId);
+    if (threatsEl) {
+        threatsEl.innerHTML = (ai.top_threats || [])
+            .map(t => `<li>${escapeHtml(t)}</li>`).join('');
+    }
+
+    // Recommendations
+    const recsEl = document.getElementById(recsId);
+    if (recsEl) {
+        recsEl.innerHTML = (ai.recommendations || [])
+            .map(r => `<li>${escapeHtml(r)}</li>`).join('');
+    }
+
+    // Attack vectors
+    const vectorsEl = document.getElementById(vectorsId);
+    if (vectorsEl) {
+        vectorsEl.innerHTML = (ai.key_attack_vectors || [])
+            .map(v => `<span class="ai-vector-tag">${escapeHtml(v)}</span>`).join('');
+    }
+
+    panel.style.display = 'block';
 }
 
 // // Create CVE item HTML
@@ -492,6 +555,10 @@ function renderPECVEs(data) {
     document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
     document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
     statsEl.style.display = 'grid';
+
+    // --- AI Analysis panel (PE tab) ---
+    renderAiPanel(data.ai_analysis, 'peAiPanel', 'peAiOverallRiskBadge',
+                  'peAiRiskSummary', 'peAiTopThreats', 'peAiRecommendations', 'peAiAttackVectors');
 
     // --- CVE list ---
     listEl.innerHTML = '';
