@@ -28,7 +28,7 @@ class NVDAPIv2:
         # ====================================================================
         # Bỏ comment và paste API key của bạn:
         # self.api_key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        self.api_key = "4a29ba81-21a1-4e9d-84ff-e806f576c061"  # Hoặc truyền vào khi khởi tạo
+        self.api_key = "0716c34c-ae5d-4cca-a01d-ef86173b304d"  # Hoặc truyền vào khi khởi tạo
         # ====================================================================
         
         self.base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"

@@ -102,7 +102,6 @@ def main():
             C=5.0,
             class_weight="balanced",  # compensate for class imbalance
             solver="lbfgs",
-            multi_class="multinomial",
             random_state=42,
         )),
     ])

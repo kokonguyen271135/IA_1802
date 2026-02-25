@@ -40,7 +40,7 @@ SEARCH_KEYWORDS = [
     "zoom", "slack",
 ]
 
-NVD_BASE    = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+NVD_BASE    = "https://services.nvd.nist.gov/rest/json/cves/2.0/"
 OUTPUT_FILE = ROOT / "data/training/cve_severity_train.csv"
 VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
 
@@ -158,10 +158,10 @@ def main():
     print("BUILD CVE SEVERITY TRAINING DATASET")
     print("=" * 60)
 
-    api_key = os.getenv("NVD_API_KEY", "4a29ba81-21a1-4e9d-84ff-e806f576c061")
+    api_key = os.getenv("NVD_API_KEY", "0716c34c-ae5d-4cca-a01d-ef86173b304d")
 
     all_records: dict[str, dict] = {}
-
+    
     # Step 1: existing cache
     cache_dir = ROOT / "data/cache/nvd"
     print(f"\n[1/2] Reading cache ({cache_dir.name})...")
@@ -193,7 +193,7 @@ def main():
         w.writeheader()
         w.writerows(records)
 
-    print(f"\nSaved → {OUTPUT_FILE}")
+    print(f"\nSaved -> {OUTPUT_FILE}")
     print("\nNext step: python untils/train_severity_model.py")
 
 
