@@ -18,64 +18,69 @@ import os
 sys.path.append(str(Path(__file__).parent))
 from cpe_extractor import CPEExtractor
 from nvd_api_v2 import NVDAPIv2
+from static_analyzer import PEStaticAnalyzer
 
 app = Flask(__name__, 
             template_folder='../frontend/templates',
             static_folder='../frontend/static')
 CORS(app)
 
-# Configuration
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-app.config['UPLOAD_FOLDER'] = 'uploads'
-Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
+# Configuration - dùng absolute path để tránh lỗi [Errno 22] trên Windows
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+UPLOAD_DIR = Path(__file__).parent.parent / 'uploads'
+UPLOAD_DIR.mkdir(exist_ok=True)
+app.config['UPLOAD_FOLDER'] = str(UPLOAD_DIR)
 
 # Global variables
 nvd_api = None
 cpe_extractor = None
+pe_analyzer = None
 
 def init_app():
     """Initialize application"""
-    global nvd_api, cpe_extractor
-    
+    global nvd_api, cpe_extractor, pe_analyzer
+
     print("=" * 80)
-    print("🚀 CVE SCANNER - FINAL VERSION")
+    print("[*] CVE SCANNER - FINAL VERSION")
     print("=" * 80)
     print()
-    
+
     # ========================================================================
-    # 🔑 GÁN API KEY TRỰC TIẾP TẠI ĐÂY
+    # GAN API KEY TRUC TIEP TAI DAY
     # ========================================================================
-    # Bỏ comment dòng dưới và paste API key của bạn:
-    # API_KEY = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-    API_KEY = "4a29ba81-21a1-4e9d-84ff-e806f576c061"  # ← Thay None bằng "your-key"
+    API_KEY = "4a29ba81-21a1-4e9d-84ff-e806f576c061"  # <- paste key cua ban
     # ========================================================================
-    
+
     # Get API key
     api_key = API_KEY or os.getenv('NVD_API_KEY')
-    
+
     if not api_key:
-        print("⚠️  WARNING: No API key configured!")
-        print("   Queries will be VERY SLOW (6 seconds per page)")
+        print("[!] WARNING: No API key configured!")
+        print("    Queries will be VERY SLOW (6 seconds per page)")
         print()
-        print("💡 To speed up 10x:")
-        print("   1. Get API key: https://nvd.nist.gov/developers/request-an-api-key")
-        print("   2. Edit app_final.py line 38: API_KEY = \"your-key\"")
+        print("[i] To speed up 10x:")
+        print("    1. Get API key: https://nvd.nist.gov/developers/request-an-api-key")
+        print("    2. Edit app.py and set API_KEY = \"your-key\"")
         print()
-    
+
     # Initialize NVD API
     nvd_api = NVDAPIv2(api_key)
-    print("✓ NVD API v2 initialized")
-    
+    print("[+] NVD API v2 initialized")
+
     # Initialize CPE extractor
     cpe_extractor = CPEExtractor()
-    print("✓ CPE Extractor initialized")
-    
+    print("[+] CPE Extractor initialized")
+
+    # Initialize PE static analyzer
+    pe_analyzer = PEStaticAnalyzer()
+    print("[+] PE Static Analyzer initialized")
+
     print()
-    print("🎯 MODE: Direct NVD API query")
-    print("   - Query directly from NVD by CPE")
-    print("   - No junction.csv needed")
-    print("   - No CVE limit")
-    print("   - 100% accurate data")
+    print("[*] MODE: Direct NVD API query")
+    print("    - Query directly from NVD by CPE")
+    print("    - No junction.csv needed")
+    print("    - No CVE limit")
+    print("    - 100% accurate data")
     print()
 
 # Initialize
@@ -333,28 +338,99 @@ def calculate_statistics(cves):
         'min_cvss': round(min_cvss, 2)
     }
 
+@app.route('/api/pe-analyze', methods=['POST'])
+def pe_analyze():
+    """PE static analysis + CVE lookup combined"""
+
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+    filepath = None
+    try:
+        filename = secure_filename(file.filename)
+        filepath = Path(app.config['UPLOAD_FOLDER']) / filename
+        file.save(str(filepath))
+
+        # ── 1. PE Static Analysis ────────────────────────────────────────────
+        print(f"\n[*] PE Static Analysis: {filename}")
+        result = pe_analyzer.analyze(filepath)
+
+        # ── 2. CPE Extraction ────────────────────────────────────────────────
+        print(f"[*] Extracting CPE...")
+        result['cpe'] = None
+        result['cpe_info'] = {}
+        result['vulnerabilities'] = []
+        result['cve_statistics'] = {}
+
+        try:
+            cpe_info = cpe_extractor.extract_from_file(filepath)
+            cpe = cpe_info.get('cpe')
+            result['cpe'] = cpe
+            result['cpe_info'] = {
+                'vendor':             cpe_info.get('vendor', ''),
+                'product':            cpe_info.get('product', ''),
+                'version':            cpe_info.get('version', ''),
+                'extraction_method':  cpe_info.get('extraction_method', ''),
+            }
+
+            # ── 3. CVE Lookup ────────────────────────────────────────────────
+            if cpe:
+                print(f"[*] Querying NVD for: {cpe}")
+                cves = nvd_api.search_by_cpe(cpe, max_results=50)
+                stats = calculate_statistics(cves)
+                result['vulnerabilities']  = cves[:50]
+                result['cve_statistics']   = stats
+                print(f"[+] Found {stats['total_cves']} CVEs")
+            else:
+                print(f"[!] Could not extract CPE - skipping CVE lookup")
+
+        except Exception as e:
+            print(f"[!] CPE/CVE step failed: {e}")
+            result['cpe_error'] = str(e)
+
+        print(f"[+] Done - Risk: {result.get('risk', {}).get('level', 'N/A')} | "
+              f"CVEs: {len(result.get('vulnerabilities', []))}")
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    finally:
+        # Always clean up the uploaded file
+        if filepath and filepath.exists():
+            try:
+                filepath.unlink()
+            except Exception:
+                pass
+
+
 # Run server
 if __name__ == '__main__':
     print("=" * 80)
-    print("🌐 Starting web server...")
+    print("[*] Starting web server...")
     print("=" * 80)
     print()
     print("Dashboard: http://localhost:5000")
     print()
     print("API Endpoints:")
-    print("  POST /api/scan         - Upload file to scan")
+    print("  POST /api/scan         - Upload file to scan (CVE lookup)")
     print("  POST /api/search       - Search by software name")
     print("  POST /api/query-cpe    - Query by CPE (limit 100)")
     print("  POST /api/export-all   - Export ALL CVEs (no limit)")
+    print("  POST /api/pe-analyze   - PE static analysis")
     print("  GET  /api/stats        - API statistics")
     print()
-    print("💡 IMPORTANT:")
-    print("   - Set API key in code (line 38) for 10x speed")
-    print("   - No CVE limit - fetches ALL CVEs from NVD")
-    print("   - Data 100% accurate from NVD")
+    print("[i] IMPORTANT:")
+    print("    - Set API key in code for 10x speed")
+    print("    - No CVE limit - fetches ALL CVEs from NVD")
+    print("    - Data 100% accurate from NVD")
     print()
     print("Press Ctrl+C to stop")
     print("=" * 80)
     print()
-    
+
     app.run(debug=True, host='0.0.0.0', port=5000)

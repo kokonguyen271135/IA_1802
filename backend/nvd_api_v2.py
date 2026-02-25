@@ -37,11 +37,11 @@ class NVDAPIv2:
         self.last_request_time = 0
         if self.api_key:
             self.request_delay = 0.6  # 50 requests / 30s
-            print(f"[NVD API v2] ✓ API key detected - Rate: 50 req/30s")
+            print(f"[NVD API v2] [+] API key detected - Rate: 50 req/30s")
         else:
             self.request_delay = 6.0  # 5 requests / 30s
-            print(f"[NVD API v2] ⚠️  No API key - Rate: 5 req/30s (SLOW!)")
-            print(f"[NVD API v2] 💡 Get key: https://nvd.nist.gov/developers/request-an-api-key")
+            print(f"[NVD API v2] [!] No API key - Rate: 5 req/30s (SLOW!)")
+            print(f"[NVD API v2] [i] Get key: https://nvd.nist.gov/developers/request-an-api-key")
         
         # Cache
         self.cache_dir = Path("data/cache/nvd_v2")
@@ -98,10 +98,10 @@ class NVDAPIv2:
                 # Get total results from first response
                 if total_results is None:
                     total_results = data.get('totalResults', 0)
-                    print(f"\n[NVD Search] ✓ Found {total_results:,} total CVEs in NVD")
-                    
+                    print(f"\n[NVD Search] [+] Found {total_results:,} total CVEs in NVD")
+
                     if total_results == 0:
-                        print(f"[NVD Search] ⚠️  No CVEs found for this CPE")
+                        print(f"[NVD Search] [!] No CVEs found for this CPE")
                         return []
                 
                 # Parse vulnerabilities
@@ -121,7 +121,7 @@ class NVDAPIv2:
                 # Stop if we hit max_results limit
                 if max_results and len(all_cves) >= max_results:
                     all_cves = all_cves[:max_results]
-                    print(f"\n[NVD Search] ⚠️  Reached max_results limit: {max_results}")
+                    print(f"\n[NVD Search] [!] Reached max_results limit: {max_results}")
                     break
                 
                 # Stop if no more results in this page
@@ -130,18 +130,18 @@ class NVDAPIv2:
                 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 403:
-                    print(f"\n[NVD Search] ❌ Error 403: Invalid API key or rate limit exceeded")
+                    print(f"\n[NVD Search] [ERROR] Error 403: Invalid API key or rate limit exceeded")
                 elif e.response.status_code == 404:
-                    print(f"\n[NVD Search] ❌ Error 404: CPE not found")
+                    print(f"\n[NVD Search] [ERROR] Error 404: CPE not found")
                 else:
-                    print(f"\n[NVD Search] ❌ HTTP Error: {e}")
+                    print(f"\n[NVD Search] [ERROR] HTTP Error: {e}")
                 break
-                
+
             except Exception as e:
-                print(f"\n[NVD Search] ❌ Error: {e}")
+                print(f"\n[NVD Search] [ERROR] Error: {e}")
                 break
-        
-        print(f"\n[NVD Search] ✓ Fetched {len(all_cves):,} CVEs successfully")
+
+        print(f"\n[NVD Search] [+] Fetched {len(all_cves):,} CVEs successfully")
         
         return all_cves
     
@@ -299,7 +299,7 @@ class NVDAPIv2:
 # Quick test
 if __name__ == "__main__":
     print("=" * 80)
-    print("🧪 TESTING NVD API V2 - Direct CPE Query")
+    print("[*] TESTING NVD API V2 - Direct CPE Query")
     print("=" * 80)
     print()
     
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     
     print()
     print("=" * 80)
-    print("📊 RESULTS")
+    print("[*] RESULTS")
     print("=" * 80)
     print()
     

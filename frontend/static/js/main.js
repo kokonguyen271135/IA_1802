@@ -378,7 +378,319 @@ function hideResults() {
     document.getElementById('results').style.display = 'none';
 }
 
+// ============================================================
+// PE STATIC ANALYSIS
+// ============================================================
+
+let currentPEResults = null;
+
+// --- Run analysis ---
+async function analyzePE() {
+    const file = fileInput.files[0];
+    if (!file) { showPEError('Please select a file first.'); return; }
+
+    document.getElementById('peLoading').style.display  = 'block';
+    document.getElementById('peResults').style.display  = 'none';
+    document.getElementById('peError').style.display    = 'none';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res  = await fetch('/api/pe-analyze', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        document.getElementById('peLoading').style.display = 'none';
+
+        if (data.success) {
+            currentPEResults = data;
+            renderPEResults(data);
+        } else {
+            showPEError(data.error || 'Analysis failed.');
+        }
+    } catch (err) {
+        document.getElementById('peLoading').style.display = 'none';
+        showPEError(`Network error: ${err.message}`);
+    }
+}
+
+function showPEError(msg) {
+    document.getElementById('peErrorMessage').textContent = msg;
+    document.getElementById('peError').style.display      = 'block';
+    document.getElementById('peLoading').style.display    = 'none';
+}
+
+// --- Render all results ---
+function renderPEResults(data) {
+    renderRiskBanner(data.risk);
+    renderFileInfo(data);
+    renderPEHeader(data.pe_info);
+    renderSections(data.sections);
+    renderImports(data.imports);
+    renderStrings(data.strings);
+    renderPECVEs(data);
+    document.getElementById('peResults').style.display = 'block';
+    document.getElementById('peResults').scrollIntoView({ behavior: 'smooth' });
+}
+
+// CVE section inside PE Analysis tab
+function renderPECVEs(data) {
+    const cpe         = data.cpe;
+    const cpeInfo     = data.cpe_info || {};
+    const vulns       = data.vulnerabilities || [];
+    const stats       = data.cve_statistics || {};
+    const cpeError    = data.cpe_error;
+
+    const listEl      = document.getElementById('peCVEList');
+    const statsEl     = document.getElementById('peCVEStats');
+    const cpeInfoEl   = document.getElementById('peCPEInfo');
+    const cpeBadge    = document.getElementById('peCPEBadge');
+
+    // --- No CPE extracted ---
+    if (!cpe) {
+        const reason = cpeError
+            ? `CPE extraction failed: ${cpeError}`
+            : (cpeInfo.error || 'Could not identify software version from this file.');
+        listEl.innerHTML = `<p style="color:#f59e0b; padding:10px;">
+            <i class="fas fa-exclamation-triangle"></i>&nbsp;
+            ${escapeHtml(reason)}
+        </p>`;
+        statsEl.style.display  = 'none';
+        cpeInfoEl.style.display = 'none';
+        cpeBadge.style.display  = 'none';
+        return;
+    }
+
+    // --- Show CPE ---
+    cpeBadge.textContent    = cpe;
+    cpeBadge.style.display  = 'inline';
+    document.getElementById('peCPEString').textContent = cpe;
+    const meta = [
+        cpeInfo.vendor  ? `Vendor: ${cpeInfo.vendor}`   : '',
+        cpeInfo.product ? `Product: ${cpeInfo.product}` : '',
+        cpeInfo.version ? `Version: ${cpeInfo.version}` : '',
+        cpeInfo.extraction_method ? `(via ${cpeInfo.extraction_method})` : '',
+    ].filter(Boolean).join('  |  ');
+    document.getElementById('peCPEMeta').textContent = meta;
+    cpeInfoEl.style.display = 'block';
+
+    // --- No CVEs found ---
+    if (vulns.length === 0) {
+        listEl.innerHTML = `<p style="color:#10b981; padding:10px;">
+            <i class="fas fa-check-circle"></i>&nbsp;No known CVEs found for this software version.
+        </p>`;
+        statsEl.style.display = 'none';
+        return;
+    }
+
+    // --- Stats ---
+    const sev = stats.by_severity || {};
+    document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
+    document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
+    document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
+    document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
+    document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
+    document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
+    statsEl.style.display = 'grid';
+
+    // --- CVE list ---
+    listEl.innerHTML = '';
+    const header = document.createElement('h3');
+    header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
+    header.innerHTML = `<i class="fas fa-list"></i> Vulnerabilities
+        <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
+            (showing ${vulns.length} of ${stats.total_cves || vulns.length})
+        </span>`;
+    listEl.appendChild(header);
+
+    vulns.forEach(cve => {
+        listEl.appendChild(createCVEItem(cve));
+    });
+}
+
+// Risk banner
+const RISK_COLORS = {
+    CLEAN:    { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
+    LOW:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e3a8a' },
+    MEDIUM:   { bg: '#fef3c7', border: '#f59e0b', text: '#78350f' },
+    HIGH:     { bg: '#fee2e2', border: '#ef4444', text: '#7f1d1d' },
+    CRITICAL: { bg: '#fce7f3', border: '#db2777', text: '#831843' },
+};
+
+function renderRiskBanner(risk) {
+    const level   = risk.level || 'CLEAN';
+    const score   = risk.score || 0;
+    const factors = risk.factors || [];
+    const colors  = RISK_COLORS[level] || RISK_COLORS.CLEAN;
+
+    const banner = document.getElementById('riskBanner');
+    banner.style.background   = colors.bg;
+    banner.style.borderColor  = colors.border;
+    banner.style.color        = colors.text;
+
+    document.getElementById('riskLevel').textContent = level;
+    document.getElementById('riskScore').textContent = `Risk Score: ${score} / 100`;
+
+    const factorsEl = document.getElementById('riskFactors');
+    factorsEl.innerHTML = factors.map(f => `<div class="risk-factor-item">&#8226; ${escapeHtml(f)}</div>`).join('');
+}
+
+// File info
+function renderFileInfo(data) {
+    document.getElementById('peInfoName').textContent   = data.filename || '-';
+    const fi = data.file_info || {};
+    document.getElementById('peInfoSize').textContent   = fi.size_human || '-';
+    document.getElementById('peInfoMD5').textContent    = fi.md5   || '-';
+    document.getElementById('peInfoSHA1').textContent   = fi.sha1  || '-';
+    document.getElementById('peInfoSHA256').textContent = fi.sha256 || '-';
+}
+
+// PE header
+function renderPEHeader(peInfo) {
+    const tbl = document.getElementById('peHeaderTable');
+    if (!peInfo) {
+        tbl.innerHTML = '<tr><td colspan="2" style="color:#9ca3af">Not a valid PE file or header parse failed</td></tr>';
+        return;
+    }
+    const rows = [
+        ['Machine',       peInfo.machine],
+        ['Compiled',      peInfo.compile_time],
+        ['Subsystem',     peInfo.subsystem],
+        ['File Type',     peInfo.is_dll ? 'DLL' : 'EXE'],
+        ['Entry Point',   peInfo.entry_point],
+        ['Image Base',    peInfo.image_base],
+        ['Sections',      peInfo.num_sections],
+        ['TLS Callbacks', peInfo.has_tls ? 'YES (suspicious)' : 'No'],
+        ['Debug Info',    peInfo.has_debug ? 'Present' : 'Stripped'],
+    ];
+    tbl.innerHTML = rows.map(([k, v]) =>
+        `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v ?? '-'))}</td></tr>`
+    ).join('');
+}
+
+// Sections
+function renderSections(sections) {
+    const container = document.getElementById('peSectionsBody');
+    if (!sections || sections.length === 0) {
+        container.innerHTML = '<p style="color:#9ca3af;padding:10px">No sections found</p>';
+        return;
+    }
+
+    const rows = sections.map(s => {
+        const entropyPct  = Math.min((s.entropy / 8) * 100, 100).toFixed(0);
+        const entropyColor = s.entropy > 7.0 ? '#ef4444' : s.entropy > 6.0 ? '#f59e0b' : '#10b981';
+        const flags = [
+            s.executable ? '<span class="sec-flag exec">X</span>' : '',
+            s.writable   ? '<span class="sec-flag write">W</span>' : '',
+            s.readable   ? '<span class="sec-flag read">R</span>'  : '',
+            s.high_entropy    ? '<span class="sec-flag danger">HIGH ENTROPY</span>' : '',
+            s.suspicious_name ? '<span class="sec-flag danger">ODD NAME</span>'    : '',
+        ].join('');
+        return `
+        <tr>
+            <td class="sec-name">${escapeHtml(s.name || '(none)')}</td>
+            <td>${formatBytes(s.virtual_size)}</td>
+            <td>
+                <div class="entropy-bar-wrap">
+                    <div class="entropy-bar" style="width:${entropyPct}%;background:${entropyColor}"></div>
+                </div>
+                <span style="font-size:12px;color:${entropyColor}">${s.entropy.toFixed(2)}</span>
+            </td>
+            <td>${flags}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+    <table class="sections-table">
+        <thead><tr><th>Name</th><th>Virtual Size</th><th>Entropy</th><th>Flags</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// Suspicious imports
+function renderImports(imports) {
+    const container = document.getElementById('peImportsBody');
+    if (!imports || !imports.suspicious || imports.suspicious.length === 0) {
+        container.innerHTML = '<p style="color:#10b981;padding:10px">No suspicious imports detected.</p>';
+        return;
+    }
+
+    const byCategory = imports.by_category || {};
+    const catBlocks  = Object.entries(byCategory).map(([cat, entries]) => {
+        const riskClass = (entries[0]?.risk || 'LOW').toLowerCase();
+        const apiList   = entries.map(e =>
+            `<span class="api-badge risk-${riskClass}">${escapeHtml(e.function)}</span>`
+        ).join(' ');
+        return `
+        <div class="import-category">
+            <div class="import-cat-header">
+                <span class="import-cat-name">${escapeHtml(cat)}</span>
+                <span class="risk-badge risk-${riskClass}">${entries[0]?.risk || ''}</span>
+                <span class="import-count">${entries.length} API(s)</span>
+            </div>
+            <div class="api-list">${apiList}</div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = `
+    <p class="imports-summary">
+        Total: <strong>${imports.total_dlls} DLLs</strong>, <strong>${imports.total_functions} functions</strong>
+        &mdash; <strong style="color:#ef4444">${imports.suspicious.length} suspicious</strong>
+    </p>
+    ${catBlocks}`;
+}
+
+// Extracted strings
+function renderStrings(strings) {
+    const container = document.getElementById('peStringsBody');
+    if (!strings || Object.keys(strings).length === 0) {
+        container.innerHTML = '<p style="color:#9ca3af;padding:10px">No notable strings found.</p>';
+        return;
+    }
+
+    const blocks = Object.entries(strings).map(([cat, items]) => {
+        const itemList = items.map(s =>
+            `<div class="string-item">${escapeHtml(s)}</div>`
+        ).join('');
+        return `
+        <div class="string-category">
+            <div class="string-cat-header">${escapeHtml(cat)} <span class="import-count">${items.length}</span></div>
+            <div class="string-items">${itemList}</div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = blocks;
+}
+
+// Export
+function exportPEJSON() {
+    if (!currentPEResults) return;
+    const blob = new Blob([JSON.stringify(currentPEResults, null, 2)], { type: 'application/json' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `pe-analysis-${currentPEResults.filename || 'result'}-${Date.now()}.json`;
+    a.click();
+}
+
+// Utility helpers
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ============================================================
 // Initialize
+// ============================================================
 document.addEventListener('DOMContentLoaded', () => {
     console.log('CVE-CPE Vulnerability Scanner initialized');
     

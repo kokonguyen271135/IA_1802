@@ -53,8 +53,133 @@
                     <div class="file-info" id="fileInfo" style="display: none;">
                         <h4><i class="fas fa-file"></i> Selected File</h4>
                         <p id="fileName"></p>
-                        <button class="btn btn-success" onclick="scanFile()">
-                            <i class="fas fa-search"></i> Analyze File
+                        <button class="btn btn-success" onclick="analyzePE()">
+                            <i class="fas fa-search"></i> Scan
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PE Loading -->
+                <div class="loading" id="peLoading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Analyzing binary &amp; querying CVE database...</p>
+                </div>
+
+                <!-- PE Error -->
+                <div class="error" id="peError" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p id="peErrorMessage"></p>
+                </div>
+
+                <!-- PE Results -->
+                <div id="peResults" style="display: none;">
+
+                    <!-- Risk Banner -->
+                    <div class="risk-banner" id="riskBanner">
+                        <div class="risk-icon"><i class="fas fa-shield-alt"></i></div>
+                        <div class="risk-info">
+                            <div class="risk-level" id="riskLevel">CLEAN</div>
+                            <div class="risk-score" id="riskScore">Score: 0 / 100</div>
+                        </div>
+                        <div class="risk-factors" id="riskFactors"></div>
+                    </div>
+
+                    <!-- Info Cards -->
+                    <div class="pe-info-grid">
+                        <!-- File Info -->
+                        <div class="pe-card">
+                            <h4><i class="fas fa-file-alt"></i> File Information</h4>
+                            <table class="pe-table">
+                                <tr><td>Filename</td><td id="peInfoName">-</td></tr>
+                                <tr><td>Size</td><td id="peInfoSize">-</td></tr>
+                                <tr><td>MD5</td><td id="peInfoMD5" class="hash-cell">-</td></tr>
+                                <tr><td>SHA1</td><td id="peInfoSHA1" class="hash-cell">-</td></tr>
+                                <tr><td>SHA256</td><td id="peInfoSHA256" class="hash-cell">-</td></tr>
+                            </table>
+                        </div>
+                        <!-- PE Header -->
+                        <div class="pe-card">
+                            <h4><i class="fas fa-cog"></i> PE Header</h4>
+                            <table class="pe-table" id="peHeaderTable">
+                                <tr><td colspan="2" style="color:#9ca3af">Not a PE file or header unavailable</td></tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Sections -->
+                    <div class="pe-card pe-card-full">
+                        <h4><i class="fas fa-layer-group"></i> Sections</h4>
+                        <div id="peSectionsBody"></div>
+                    </div>
+
+                    <!-- Suspicious Imports -->
+                    <div class="pe-card pe-card-full" id="peImportsCard">
+                        <h4><i class="fas fa-exclamation-circle"></i> Suspicious Imports</h4>
+                        <div id="peImportsBody"></div>
+                    </div>
+
+                    <!-- Extracted Strings -->
+                    <div class="pe-card pe-card-full" id="peStringsCard">
+                        <h4><i class="fas fa-font"></i> Extracted Strings</h4>
+                        <div id="peStringsBody"></div>
+                    </div>
+
+                    <!-- CVE Vulnerabilities -->
+                    <div class="pe-card pe-card-full" id="peCVECard">
+                        <h4><i class="fas fa-bug"></i> CVE Vulnerabilities
+                            <span id="peCPEBadge" style="display:none; font-weight:400; font-size:13px; margin-left:10px;
+                                  background:#f3f4f6; padding:3px 10px; border-radius:6px; font-family:monospace;"></span>
+                        </h4>
+
+                        <!-- CPE info -->
+                        <div id="peCPEInfo" style="display:none; margin-bottom:16px;">
+                            <div class="cpe-display">
+                                <strong>CPE:</strong>
+                                <code id="peCPEString"></code>
+                            </div>
+                            <small id="peCPEMeta" style="color:#6b7280; margin-top:4px; display:block;"></small>
+                        </div>
+
+                        <!-- CVE stats -->
+                        <div class="stats-grid" id="peCVEStats" style="display:none; margin-bottom:20px;">
+                            <div class="stat-card">
+                                <i class="fas fa-bug"></i>
+                                <h3 id="peCVETotal">0</h3><p>Total CVEs</p>
+                            </div>
+                            <div class="stat-card critical">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h3 id="peCVECritical">0</h3><p>Critical</p>
+                            </div>
+                            <div class="stat-card high">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <h3 id="peCVEHigh">0</h3><p>High</p>
+                            </div>
+                            <div class="stat-card medium">
+                                <i class="fas fa-minus-circle"></i>
+                                <h3 id="peCVEMedium">0</h3><p>Medium</p>
+                            </div>
+                            <div class="stat-card low">
+                                <i class="fas fa-check-circle"></i>
+                                <h3 id="peCVELow">0</h3><p>Low</p>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-chart-line"></i>
+                                <h3 id="peCVEAvg">0</h3><p>Avg CVSS</p>
+                            </div>
+                        </div>
+
+                        <!-- CVE list -->
+                        <div id="peCVEList">
+                            <p style="color:#9ca3af; padding:10px;">
+                                CVE data will appear here after analysis.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Export -->
+                    <div class="export-section">
+                        <button class="btn btn-secondary" onclick="exportPEJSON()">
+                            <i class="fas fa-download"></i> Export JSON
                         </button>
                     </div>
                 </div>
