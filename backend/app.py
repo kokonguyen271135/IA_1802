@@ -19,6 +19,9 @@ sys.path.append(str(Path(__file__).parent))
 from cpe_extractor import CPEExtractor
 from nvd_api_v2 import NVDAPIv2
 from static_analyzer import PEStaticAnalyzer
+from ai_analyzer import ai_match_cpe, ai_analyze_severity, is_available as ai_available
+from severity_classifier import predict as clf_predict, is_available as clf_available
+from cpe_semantic_matcher import match_best as sem_match_best, match as sem_match, is_available as sem_available
 
 app = Flask(__name__, 
             template_folder='../frontend/templates',
@@ -83,6 +86,27 @@ def init_app():
     print("    - 100% accurate data")
     print()
 
+    # AI analyzer status
+    if ai_available():
+        print("[+] AI Analyzer ENABLED (Claude)")
+        print("    - AI CPE Matching: ON")
+        print("    - AI Severity Context: ON")
+    else:
+        print("[i] AI Analyzer DISABLED")
+        print("    Set ANTHROPIC_API_KEY env var to enable AI features")
+
+    # ML modules status
+    if sem_available():
+        print("[+] Semantic CPE Matcher ENABLED (FAISS + sentence-transformers)")
+    else:
+        print("[i] Semantic CPE Matcher DISABLED (run: python untils/build_cpe_index.py)")
+
+    if clf_available():
+        print("[+] Severity Classifier ENABLED (TF-IDF + LogisticRegression)")
+    else:
+        print("[i] Severity Classifier DISABLED (run: python untils/train_severity_model.py)")
+    print()
+
 # Initialize
 init_app()
 
@@ -113,32 +137,84 @@ def scan_file():
         
         # Extract CPE
         cpe_info = cpe_extractor.extract_from_file(filepath)
-        
+
         cpe = cpe_info.get('cpe')
         vendor = cpe_info.get('vendor')
         product = cpe_info.get('product')
         version = cpe_info.get('version')
-        
+        extraction_method = cpe_info.get('extraction_method', '')
+
+        # ── AI CPE Matching (for uncertain extractions) ──────────────────
+        ai_cpe_result = None
+        sem_cpe_result = None
+        if extraction_method in ('generic_fallback', 'filename_pattern'):
+            file_meta = cpe_info.get('file_info', {})
+            query_name = (file_meta.get('ProductName') or product or filename or '').strip()
+
+            # 1. Try Claude AI first (highest accuracy)
+            if ai_available():
+                ai_cpe_result = ai_match_cpe(
+                    product_name=product or '',
+                    company_name=file_meta.get('CompanyName', ''),
+                    filename=file_meta.get('FileName', filename),
+                    version=version or '',
+                )
+                if ai_cpe_result.get('success') and ai_cpe_result.get('confidence') in ('high', 'medium'):
+                    ai_vendor  = ai_cpe_result['vendor']
+                    ai_product = ai_cpe_result['product']
+                    cpe    = cpe_extractor._build_cpe(ai_vendor, ai_product, version or '')
+                    vendor  = ai_vendor
+                    product = ai_product
+
+            # 2. Fall back to semantic FAISS matcher when AI unavailable / low confidence
+            if sem_available() and query_name and (not ai_cpe_result or not ai_cpe_result.get('success')):
+                sem_cpe_result = sem_match_best(query_name, min_score=0.50)
+                if sem_cpe_result and sem_cpe_result.get('confidence') in ('high', 'medium'):
+                    vendor  = sem_cpe_result['vendor']
+                    product = sem_cpe_result['product']
+                    cpe     = cpe_extractor._build_cpe(vendor, product, version or '')
+
         if not cpe:
             return jsonify({
                 'success': False,
                 'error': 'Could not extract CPE from file',
-                'file_info': cpe_info
+                'file_info': cpe_info,
+                'ai_cpe': ai_cpe_result,
             })
-        
+
         # Query NVD directly by CPE
         max_results = request.form.get('max_results', None)
         if max_results:
             max_results = int(max_results)
-        
+
         cves = nvd_api.search_by_cpe(cpe, max_results=max_results)
-        
+
         # Calculate statistics
         stats = calculate_statistics(cves)
-        
+
+        # ── ML Severity Predictions (enrich each CVE) ────────────────────
+        if clf_available() and cves:
+            for cve in cves:
+                pred = clf_predict(
+                    description=cve.get('description', ''),
+                    vector_string=cve.get('vector_string', ''),
+                )
+                if pred:
+                    cve['ml_prediction'] = pred
+
+        # ── AI Severity Context ───────────────────────────────────────────
+        ai_analysis = None
+        if ai_available() and cves:
+            ai_analysis = ai_analyze_severity(
+                software_info={'name': f"{vendor} {product}", 'vendor': vendor,
+                               'product': product, 'version': version or ''},
+                cves=cves,
+                stats=stats,
+            )
+
         # Clean up
         filepath.unlink()
-        
+
         return jsonify({
             'success': True,
             'file_info': {
@@ -146,14 +222,17 @@ def scan_file():
                 'vendor': vendor,
                 'product': product,
                 'version': version,
-                'extraction_method': cpe_info.get('extraction_method')
+                'extraction_method': extraction_method,
             },
             'cpe': cpe,
             'total_cves': stats['total_cves'],
             'vulnerabilities': cves[:50],  # Return first 50 for UI
             'statistics': stats,
             'data_source': 'NVD API (Direct CPE Query)',
-            'note': f"Showing first 50 of {stats['total_cves']} CVEs"
+            'note': f"Showing first 50 of {stats['total_cves']} CVEs",
+            'ai_cpe': ai_cpe_result,
+            'sem_cpe': sem_cpe_result,
+            'ai_analysis': ai_analysis,
         })
         
     except Exception as e:
@@ -174,36 +253,87 @@ def search_by_name():
     try:
         # Extract CPE from name
         cpe_info = cpe_extractor.extract_from_software_name(software_name, version)
-        
+
         cpe = cpe_info.get('cpe')
         vendor = cpe_info.get('vendor')
         product = cpe_info.get('product')
-        
+
+        # ── AI / Semantic CPE Matching ────────────────────────────────────
+        ai_cpe_result  = None
+        sem_cpe_result = None
+
+        # 1. Try Claude AI (most accurate)
+        if ai_available():
+            ai_cpe_result = ai_match_cpe(
+                product_name=software_name,
+                company_name='',
+                filename='',
+                version=version or '',
+            )
+            if ai_cpe_result.get('success') and ai_cpe_result.get('confidence') in ('high', 'medium'):
+                ai_vendor  = ai_cpe_result['vendor']
+                ai_product = ai_cpe_result['product']
+                cpe    = cpe_extractor._build_cpe(ai_vendor, ai_product, version or '')
+                vendor  = ai_vendor
+                product = ai_product
+
+        # 2. Semantic FAISS matcher as primary / fallback
+        if sem_available():
+            sem_cpe_result = sem_match_best(software_name, min_score=0.50)
+            if sem_cpe_result and not (ai_cpe_result and ai_cpe_result.get('success')):
+                if sem_cpe_result.get('confidence') in ('high', 'medium'):
+                    vendor  = sem_cpe_result['vendor']
+                    product = sem_cpe_result['product']
+                    cpe     = cpe_extractor._build_cpe(vendor, product, version or '')
+
         if not cpe:
             return jsonify({'success': False, 'error': 'Could not build CPE from software name'})
-        
+
         # Query NVD directly by CPE
         max_results = data.get('max_results', None)
-        
+
         cves = nvd_api.search_by_cpe(cpe, max_results=max_results)
-        
+
         # Calculate statistics
         stats = calculate_statistics(cves)
-        
+
+        # ── ML Severity Predictions (enrich each CVE) ────────────────────
+        if clf_available() and cves:
+            for cve in cves:
+                pred = clf_predict(
+                    description=cve.get('description', ''),
+                    vector_string=cve.get('vector_string', ''),
+                )
+                if pred:
+                    cve['ml_prediction'] = pred
+
+        # ── AI Severity Context ───────────────────────────────────────────
+        ai_analysis = None
+        if ai_available() and cves:
+            ai_analysis = ai_analyze_severity(
+                software_info={'name': software_name, 'vendor': vendor,
+                               'product': product, 'version': version or ''},
+                cves=cves,
+                stats=stats,
+            )
+
         return jsonify({
             'success': True,
             'software_info': {
                 'name': software_name,
                 'version': version,
                 'vendor': vendor,
-                'product': product
+                'product': product,
             },
             'cpe': cpe,
             'total_cves': stats['total_cves'],
             'vulnerabilities': cves[:50],  # Return first 50 for UI
             'statistics': stats,
             'data_source': 'NVD API (Direct CPE Query)',
-            'note': f"Showing first 50 of {stats['total_cves']} CVEs" if stats['total_cves'] > 50 else None
+            'note': f"Showing first 50 of {stats['total_cves']} CVEs" if stats['total_cves'] > 50 else None,
+            'ai_cpe': ai_cpe_result,
+            'sem_cpe': sem_cpe_result,
+            'ai_analysis': ai_analysis,
         })
         
     except Exception as e:
@@ -228,10 +358,33 @@ def query_cpe():
         print(f"[API] Max results: {max_results if max_results else 'ALL'}")
         
         cves = nvd_api.search_by_cpe(cpe, max_results=max_results)
-        
+
         # Calculate statistics
         stats = calculate_statistics(cves)
-        
+
+        # ── ML Severity Predictions (enrich each CVE) ────────────────────
+        if clf_available() and cves:
+            for cve in cves:
+                pred = clf_predict(
+                    description=cve.get('description', ''),
+                    vector_string=cve.get('vector_string', ''),
+                )
+                if pred:
+                    cve['ml_prediction'] = pred
+
+        # ── AI Severity Context ───────────────────────────────────────────
+        ai_analysis = None
+        if ai_available() and cves:
+            # Derive a human-readable name from the CPE string
+            parts = cpe.split(':')
+            sw_name = f"{parts[3]} {parts[4]}" if len(parts) > 4 else cpe
+            sw_version = parts[5] if len(parts) > 5 else ''
+            ai_analysis = ai_analyze_severity(
+                software_info={'name': sw_name, 'version': sw_version},
+                cves=cves,
+                stats=stats,
+            )
+
         return jsonify({
             'success': True,
             'cpe': cpe,
@@ -240,7 +393,8 @@ def query_cpe():
             'statistics': stats,
             'data_source': 'NVD API (Direct CPE Query)',
             'note': f"Showing first 100 of {stats['total_cves']} CVEs" if stats['total_cves'] > 100 else None,
-            'nvd_search_url': f"https://nvd.nist.gov/vuln/search#/nvd/home?cpeFilterMode=cpe&cpeName={cpe}&resultType=records"
+            'nvd_search_url': f"https://nvd.nist.gov/vuln/search#/nvd/home?cpeFilterMode=cpe&cpeName={cpe}&resultType=records",
+            'ai_analysis': ai_analysis,
         })
         
     except Exception as e:
@@ -285,11 +439,18 @@ def get_stats():
         'mode': 'Direct NVD API Query',
         'api_key_active': nvd_api.api_key is not None,
         'rate_limit': '50 req/30s' if nvd_api.api_key else '5 req/30s',
+        'ai_enabled': ai_available(),
+        'sem_cpe_enabled': sem_available(),
+        'severity_clf_enabled': clf_available(),
         'features': [
             'Direct CPE query to NVD',
             'No CVE limit',
             '100% accurate data',
-            'Real-time updates'
+            'Real-time updates',
+            'AI CPE Matching (Claude)' if ai_available() else 'AI CPE Matching (disabled)',
+            'AI Severity Context (Claude)' if ai_available() else 'AI Severity Context (disabled)',
+            'Semantic CPE Matching (FAISS)' if sem_available() else 'Semantic CPE Matching (disabled)',
+            'ML Severity Classifier (TF-IDF+LR)' if clf_available() else 'ML Severity Classifier (disabled)',
         ]
     })
 
@@ -369,22 +530,79 @@ def pe_analyze():
         try:
             cpe_info = cpe_extractor.extract_from_file(filepath)
             cpe = cpe_info.get('cpe')
+            vendor   = cpe_info.get('vendor', '')
+            product  = cpe_info.get('product', '')
+            version  = cpe_info.get('version', '')
+            extraction_method = cpe_info.get('extraction_method', '')
+
+            # ── AI / Semantic CPE Matching ───────────────────────────────
+            ai_cpe_result  = None
+            sem_cpe_result = None
+            if extraction_method in ('generic_fallback', 'filename_pattern'):
+                file_meta  = cpe_info.get('file_info', {})
+                query_name = (file_meta.get('ProductName') or product or filename or '').strip()
+
+                # 1. Claude AI (highest accuracy)
+                if ai_available():
+                    ai_cpe_result = ai_match_cpe(
+                        product_name=product or '',
+                        company_name=file_meta.get('CompanyName', ''),
+                        filename=file_meta.get('FileName', filename),
+                        version=version or '',
+                    )
+                    if ai_cpe_result.get('success') and ai_cpe_result.get('confidence') in ('high', 'medium'):
+                        vendor  = ai_cpe_result['vendor']
+                        product = ai_cpe_result['product']
+                        cpe     = cpe_extractor._build_cpe(vendor, product, version or '')
+
+                # 2. Semantic FAISS fallback
+                if sem_available() and query_name and not (ai_cpe_result and ai_cpe_result.get('success')):
+                    sem_cpe_result = sem_match_best(query_name, min_score=0.50)
+                    if sem_cpe_result and sem_cpe_result.get('confidence') in ('high', 'medium'):
+                        vendor  = sem_cpe_result['vendor']
+                        product = sem_cpe_result['product']
+                        cpe     = cpe_extractor._build_cpe(vendor, product, version or '')
+
+            result['ai_cpe']  = ai_cpe_result
+            result['sem_cpe'] = sem_cpe_result
+
             result['cpe'] = cpe
             result['cpe_info'] = {
-                'vendor':             cpe_info.get('vendor', ''),
-                'product':            cpe_info.get('product', ''),
-                'version':            cpe_info.get('version', ''),
-                'extraction_method':  cpe_info.get('extraction_method', ''),
+                'vendor':            vendor,
+                'product':           product,
+                'version':           version,
+                'extraction_method': extraction_method,
             }
 
-            # ── 3. CVE Lookup ────────────────────────────────────────────────
+            # ── 3. CVE Lookup ────────────────────────────────────────────
             if cpe:
                 print(f"[*] Querying NVD for: {cpe}")
                 cves = nvd_api.search_by_cpe(cpe, max_results=50)
                 stats = calculate_statistics(cves)
-                result['vulnerabilities']  = cves[:50]
-                result['cve_statistics']   = stats
                 print(f"[+] Found {stats['total_cves']} CVEs")
+
+                # ── ML Severity Predictions ───────────────────────────────
+                if clf_available() and cves:
+                    for cve in cves:
+                        pred = clf_predict(
+                            description=cve.get('description', ''),
+                            vector_string=cve.get('vector_string', ''),
+                        )
+                        if pred:
+                            cve['ml_prediction'] = pred
+
+                result['vulnerabilities'] = cves[:50]
+                result['cve_statistics']  = stats
+
+                # ── AI Severity Context ───────────────────────────────────
+                if ai_available() and cves:
+                    result['ai_analysis'] = ai_analyze_severity(
+                        software_info={'name': f"{vendor} {product}",
+                                       'vendor': vendor, 'product': product,
+                                       'version': version or ''},
+                        cves=cves,
+                        stats=stats,
+                    )
             else:
                 print(f"[!] Could not extract CPE - skipping CVE lookup")
 

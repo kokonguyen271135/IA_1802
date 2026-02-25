@@ -168,6 +168,31 @@
                             </div>
                         </div>
 
+                        <!-- AI Analysis (PE tab) -->
+                        <div id="peAiPanel" style="display:none;" class="ai-panel">
+                            <div class="ai-panel-header">
+                                <i class="fas fa-robot"></i>
+                                <span>AI Risk Assessment</span>
+                                <span id="peAiOverallRiskBadge" class="ai-risk-badge"></span>
+                                <span class="ai-powered-tag">Powered by Claude</span>
+                            </div>
+                            <p id="peAiRiskSummary" class="ai-risk-summary"></p>
+                            <div class="ai-columns">
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-bolt"></i> Top Threats</h4>
+                                    <ul id="peAiTopThreats" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-wrench"></i> Recommendations</h4>
+                                    <ul id="peAiRecommendations" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-network-wired"></i> Attack Vectors</h4>
+                                    <div id="peAiAttackVectors" class="ai-vectors"></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- CVE list -->
                         <div id="peCVEList">
                             <p style="color:#9ca3af; padding:10px;">
@@ -273,6 +298,31 @@
                         <i class="fas fa-chart-line"></i>
                         <h3 id="statAvgCVSS">0</h3>
                         <p>Avg CVSS</p>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Panel -->
+                <div id="aiAnalysisPanel" style="display:none;" class="ai-panel">
+                    <div class="ai-panel-header">
+                        <i class="fas fa-robot"></i>
+                        <span>AI Risk Assessment</span>
+                        <span id="aiOverallRiskBadge" class="ai-risk-badge"></span>
+                        <span class="ai-powered-tag">Powered by Claude</span>
+                    </div>
+                    <p id="aiRiskSummary" class="ai-risk-summary"></p>
+                    <div class="ai-columns">
+                        <div class="ai-col">
+                            <h4><i class="fas fa-bolt"></i> Top Threats</h4>
+                            <ul id="aiTopThreats" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-wrench"></i> Recommendations</h4>
+                            <ul id="aiRecommendations" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-network-wired"></i> Attack Vectors</h4>
+                            <div id="aiAttackVectors" class="ai-vectors"></div>
+                        </div>
                     </div>
                 </div>
 
