@@ -986,3 +986,324 @@ body {
     font-weight: 600;
     border: 1px solid #c4b5fd;
 }
+
+/* ================================================================
+   CODEBERT DEEP BEHAVIOR ANALYSIS PANEL
+   ================================================================ */
+
+#codebertCard {
+    border: 2px solid #6366f1;
+    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+}
+
+#codebertCard h4 {
+    color: #4338ca;
+}
+
+/* Score bar */
+.codebert-score-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 16px 0 12px;
+    flex-wrap: wrap;
+}
+
+.codebert-score-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    min-width: 140px;
+}
+
+.codebert-bar-wrap {
+    flex: 1;
+    height: 14px;
+    background: #e5e7eb;
+    border-radius: 7px;
+    overflow: hidden;
+    min-width: 120px;
+}
+
+.codebert-bar {
+    height: 100%;
+    border-radius: 7px;
+    transition: width 0.8s ease;
+}
+
+.codebert-score-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1f2937;
+    min-width: 52px;
+    text-align: right;
+}
+
+.codebert-confidence {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    min-width: 120px;
+}
+
+.codebert-summary {
+    font-size: 14px;
+    color: #374151;
+    background: white;
+    border: 1px solid #c4b5fd;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* Detected pattern cards */
+.codebert-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 12px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.codebert-patterns-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.codebert-pattern-card {
+    border-radius: 10px;
+    padding: 12px 14px;
+    border: 1.5px solid #e5e7eb;
+    background: white;
+}
+
+.codebert-pattern-card.detected {
+    border-color: #ef4444;
+    background: #fff5f5;
+}
+
+.pattern-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.pattern-name {
+    font-weight: 700;
+    font-size: 14px;
+    color: #1f2937;
+    flex: 1;
+}
+
+.pattern-severity-badge {
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+}
+
+.pattern-mitre {
+    font-size: 11px;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-family: monospace;
+}
+
+.pattern-sim-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.pattern-sim-bar-wrap > div:first-child {
+    flex: 1;
+    height: 8px;
+    background: #fee2e2;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pattern-sim-bar {
+    height: 100%;
+    border-radius: 4px;
+}
+
+.pattern-sim-val {
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 48px;
+    text-align: right;
+    color: #dc2626;
+}
+
+.pattern-desc {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.5;
+}
+
+/* All scores table */
+.codebert-all-scores {
+    margin-top: 8px;
+}
+
+.codebert-all-scores summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: #6366f1;
+    font-weight: 600;
+    padding: 6px 0;
+    user-select: none;
+}
+
+.all-scores-table-wrap {
+    overflow-x: auto;
+    margin-top: 8px;
+}
+
+.all-scores-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.all-scores-table th, .all-scores-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+}
+
+.all-scores-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+}
+
+.score-row-detected {
+    background: #fef2f2;
+}
+
+.detected-tick {
+    color: #10b981;
+    font-weight: 700;
+}
+
+/* ================================================================
+   SECBERT PROFILE CARD
+   ================================================================ */
+
+#secbertProfileCard {
+    border: 2px solid #0891b2;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+}
+
+#secbertProfileCard h4 {
+    color: #0e7490;
+}
+
+.secbert-profile-text {
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.7;
+    background: white;
+    border: 1px solid #bae6fd;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+}
+
+/* ================================================================
+   CVE RELEVANCE BADGES
+   ================================================================ */
+
+.cve-relevance-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0 8px;
+}
+
+.relevance-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1.5px solid;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: default;
+    white-space: nowrap;
+}
+
+.relevance-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.badge.ml-badge {
+    background: #f3e8ff;
+    color: #7e22ce;
+    border: 1px solid #d8b4fe;
+    font-size: 11px;
+}
+
+/* ================================================================
+   ML PREDICTION TAG IN CVE LIST
+   ================================================================ */
+
+.cve-ml-row {
+    margin: 4px 0;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+/* ================================================================
+   MODAL AI SECTION
+   ================================================================ */
+
+#modal-ai-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+
+#modal-ai-section h3 {
+    font-size: 15px;
+    color: #374151;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ================================================================
+   AI POWERED TAG (already exists, extend for DL models)
+   ================================================================ */
+
+.ai-powered-tag {
+    font-size: 11px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    vertical-align: middle;
+}

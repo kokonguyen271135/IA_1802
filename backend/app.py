@@ -22,6 +22,9 @@ from static_analyzer import PEStaticAnalyzer
 from ai_analyzer import ai_match_cpe, ai_analyze_severity, is_available as ai_available
 from severity_classifier import predict as clf_predict, is_available as clf_available
 from cpe_semantic_matcher import match_best as sem_match_best, match as sem_match, is_available as sem_available
+from contextual_scorer import score_cves, build_file_profile
+from codebert_analyzer import analyze as codebert_analyze, is_available as codebert_available
+from secbert_cve_scorer import score_cves_semantic, build_profile_text, is_available as secbert_available
 
 app = Flask(__name__, 
             template_folder='../frontend/templates',
@@ -105,6 +108,25 @@ def init_app():
         print("[+] Severity Classifier ENABLED (TF-IDF + LogisticRegression)")
     else:
         print("[i] Severity Classifier DISABLED (run: python untils/train_severity_model.py)")
+
+    # Deep Learning models status
+    print()
+    print("[*] Deep Learning AI Models:")
+    if codebert_available():
+        print("[+] CodeBERT Analyzer ENABLED (microsoft/codebert-base)")
+        print("    - PE API sequence deep analysis: ON")
+        print("    - Malware behavior pattern matching: ON")
+    else:
+        print("[i] CodeBERT Analyzer DISABLED")
+        print("    Install: pip install transformers torch")
+
+    if secbert_available():
+        print("[+] SecBERT CVE Scorer ENABLED (jackaduma/SecBERT)")
+        print("    - Semantic CVE-PE relevance scoring: ON")
+        print("    - Cross-domain BERT embedding matching: ON")
+    else:
+        print("[i] SecBERT CVE Scorer DISABLED")
+        print("    Install: pip install transformers torch (or sentence-transformers)")
     print()
 
 # Initialize
@@ -442,6 +464,8 @@ def get_stats():
         'ai_enabled': ai_available(),
         'sem_cpe_enabled': sem_available(),
         'severity_clf_enabled': clf_available(),
+        'codebert_enabled': codebert_available(),
+        'secbert_enabled': secbert_available(),
         'features': [
             'Direct CPE query to NVD',
             'No CVE limit',
@@ -451,6 +475,8 @@ def get_stats():
             'AI Severity Context (Claude)' if ai_available() else 'AI Severity Context (disabled)',
             'Semantic CPE Matching (FAISS)' if sem_available() else 'Semantic CPE Matching (disabled)',
             'ML Severity Classifier (TF-IDF+LR)' if clf_available() else 'ML Severity Classifier (disabled)',
+            'CodeBERT PE Behavior Analysis (microsoft/codebert-base)' if codebert_available() else 'CodeBERT (disabled - pip install transformers torch)',
+            'SecBERT Semantic CVE Scoring (jackaduma/SecBERT)' if secbert_available() else 'SecBERT (disabled - pip install transformers torch)',
         ]
     })
 
@@ -519,6 +545,24 @@ def pe_analyze():
         # ── 1. PE Static Analysis ────────────────────────────────────────────
         print(f"\n[*] PE Static Analysis: {filename}")
         result = pe_analyzer.analyze(filepath)
+
+        # ── 1b. CodeBERT Deep Behavior Analysis ─────────────────────────────
+        if codebert_available() and result.get('imports'):
+            print(f"[*] Running CodeBERT deep behavior analysis …")
+            imports = result.get('imports', {})
+            cb_result = codebert_analyze(
+                suspicious_by_category=imports.get('by_category', {}),
+                all_suspicious=imports.get('suspicious', []),
+            )
+            result['codebert_analysis'] = cb_result
+            if cb_result.get('available'):
+                print(
+                    f"[+] CodeBERT score: {cb_result['codebert_score']:.3f} | "
+                    f"confidence: {cb_result['confidence']} | "
+                    f"patterns detected: {len(cb_result.get('detected_patterns', []))}"
+                )
+        else:
+            result['codebert_analysis'] = {'available': False}
 
         # ── 2. CPE Extraction ────────────────────────────────────────────────
         print(f"[*] Extracting CPE...")
@@ -590,6 +634,21 @@ def pe_analyze():
                         )
                         if pred:
                             cve['ml_prediction'] = pred
+
+                # ── Layer A: Keyword-based Contextual Scoring ────────────
+                # Rule-based CVE relevance from PE import categories
+                cves = score_cves(result, cves)
+                result['file_profile'] = build_file_profile(result)
+                print(f"[+] Contextual scoring applied — CVEs re-ranked by file relevance")
+
+                # ── Layer B: SecBERT Semantic CVE–PE Matching ────────────
+                # Deep semantic relevance: BERT embedding cosine similarity
+                if secbert_available():
+                    cves = score_cves_semantic(result, cves)
+                    result['behavior_profile_text'] = build_profile_text(result)
+                    print(f"[+] SecBERT semantic scoring applied")
+                else:
+                    print(f"[i] SecBERT disabled — install transformers+torch to enable")
 
                 result['vulnerabilities'] = cves[:50]
                 result['cve_statistics']  = stats
