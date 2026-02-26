@@ -18,6 +18,52 @@ class PEStaticAnalyzer:
     """Static analyzer for PE binary files (exe, dll, sys)"""
 
     # -------------------------------------------------------------------------
+    # Known embedded library/component version patterns
+    # Used for vulnerability-focused component detection
+    # -------------------------------------------------------------------------
+    COMPONENT_PATTERNS = {
+        # Format: component_name → (regex, cpe_vendor, cpe_product)
+        'OpenSSL':       (r'OpenSSL\s+(\d+\.\d+[\.\d\w\-]*)',   'openssl',    'openssl'),
+        'libcurl':       (r'libcurl[/\s]+(\d+\.\d+[\.\d]*)',     'haxx',       'libcurl'),
+        'zlib':          (r'zlib[/\s]+(\d+\.\d+[\.\d]*)',        'zlib',       'zlib'),
+        'Python':        (r'Python\s+(\d+\.\d+[\.\d]*)',          'python',     'python'),
+        'SQLite':        (r'SQLite[/\s]+(\d+\.\d+[\.\d]*)',       'sqlite',     'sqlite'),
+        'Lua':           (r'Lua\s+(\d+\.\d+[\.\d]*)',             'lua',        'lua'),
+        'Expat':         (r'expat[/\s]+(\d+\.\d+[\.\d]*)',        'libexpat',   'libexpat'),
+        'libxml2':       (r'libxml2[/\s]+(\d+\.\d+[\.\d]*)',      'xmlsoft',    'libxml2'),
+        'libpng':        (r'libpng[/\s]+(\d+\.\d+[\.\d]*)',       'libpng',     'libpng'),
+        'libjpeg':       (r'libjpeg[/\s]+(\d+\.\d+[\.\d]*)',      'ijg',        'libjpeg'),
+        'PCRE':          (r'PCRE\s+(\d+\.\d+[\.\d]*)',             'pcre',       'pcre'),
+        'Boost':         (r'Boost\s+(\d+\.\d+[\.\d]*)',            'boost',      'boost'),
+        'Qt':            (r'Qt\s+(\d+\.\d+[\.\d]*)',               'qt',         'qt'),
+        'WinRAR':        (r'WinRAR\s+(\d+\.\d+[\.\d]*)',           'rarlab',     'winrar'),
+        '7-Zip':         (r'7-Zip\s+(\d+\.\d+[\.\d]*)',            '7-zip',      '7-zip'),
+        'Chromium':      (r'Chromium[/\s]+(\d+\.\d+[\.\d\w]*)',   'google',     'chrome'),
+        'Electron':      (r'Electron[/\s]+(\d+\.\d+[\.\d]*)',     'github',     'electron'),
+        'Node.js':       (r'node[.js]*\s+v?(\d+\.\d+[\.\d]*)',    'nodejs',     'node.js'),
+        'V8':            (r'V8[/\s]+(\d+\.\d+[\.\d]*)',            'google',     'v8'),
+        'OpenCV':        (r'OpenCV[/\s]+(\d+\.\d+[\.\d]*)',        'opencv',     'opencv'),
+    }
+
+    # DLL filename → component info (version from filename when possible)
+    DLL_COMPONENT_MAP = {
+        'openssl':        {'component': 'OpenSSL',   'cpe_vendor': 'openssl',  'cpe_product': 'openssl'},
+        'libssl':         {'component': 'OpenSSL',   'cpe_vendor': 'openssl',  'cpe_product': 'openssl'},
+        'libcrypto':      {'component': 'OpenSSL',   'cpe_vendor': 'openssl',  'cpe_product': 'openssl'},
+        'libcurl':        {'component': 'libcurl',   'cpe_vendor': 'haxx',     'cpe_product': 'libcurl'},
+        'curl':           {'component': 'libcurl',   'cpe_vendor': 'haxx',     'cpe_product': 'libcurl'},
+        'python':         {'component': 'Python',    'cpe_vendor': 'python',   'cpe_product': 'python'},
+        'sqlite3':        {'component': 'SQLite',    'cpe_vendor': 'sqlite',   'cpe_product': 'sqlite'},
+        'libxml2':        {'component': 'libxml2',   'cpe_vendor': 'xmlsoft',  'cpe_product': 'libxml2'},
+        'zlib':           {'component': 'zlib',      'cpe_vendor': 'zlib',     'cpe_product': 'zlib'},
+        'node':           {'component': 'Node.js',   'cpe_vendor': 'nodejs',   'cpe_product': 'node.js'},
+        'v8':             {'component': 'V8',         'cpe_vendor': 'google',   'cpe_product': 'v8'},
+        'msvcr':          {'component': 'MSVC Runtime', 'cpe_vendor': 'microsoft', 'cpe_product': 'visual_c++'},
+        'msvcp':          {'component': 'MSVC Runtime', 'cpe_vendor': 'microsoft', 'cpe_product': 'visual_c++'},
+        'vcruntime':      {'component': 'MSVC Runtime', 'cpe_vendor': 'microsoft', 'cpe_product': 'visual_c++'},
+    }
+
+    # -------------------------------------------------------------------------
     # Suspicious API database - categorized by behavior
     # -------------------------------------------------------------------------
     SUSPICIOUS_APIS = {
@@ -165,7 +211,10 @@ class PEStaticAnalyzer:
             # 3. String extraction
             result['strings'] = self._extract_strings(filepath)
 
-            # 4. Risk scoring
+            # 4. Component/version detection (for vulnerability assessment)
+            result['components'] = self._detect_components(filepath, result)
+
+            # 5. Risk scoring
             result['risk'] = self._calculate_risk(result)
 
             result['success'] = True
@@ -457,6 +506,99 @@ class PEStaticAnalyzer:
             'level': level,
             'factors': factors if factors else ['No significant indicators found'],
         }
+
+    # -------------------------------------------------------------------------
+    # Component / version detection (vulnerability-assessment focused)
+    # -------------------------------------------------------------------------
+
+    def _detect_components(self, filepath, analysis: dict) -> list:
+        """
+        Detect embedded software components and their versions.
+
+        Searches for version strings of known libraries (OpenSSL, libcurl,
+        SQLite, Python, etc.) in extracted strings and DLL import names.
+
+        Returns list of dicts:
+            [{name, version, cpe_vendor, cpe_product, source}]
+
+        This data feeds directly into CPE generation for NVD CVE lookups —
+        a file embedding OpenSSL 1.0.1 may be affected by Heartbleed even
+        if it has no other identifying information.
+        """
+        found: dict[str, dict] = {}   # component_name → best match
+
+        # ── 1. Search extracted strings for version patterns ──────────────
+        strings = analysis.get('strings', {})
+        all_strings_text = '\n'.join(
+            s for bucket in strings.values()
+            for s in (bucket if isinstance(bucket, list) else [])
+        )
+
+        # Also scan raw file bytes (first 4MB) for version strings
+        try:
+            with open(str(filepath), 'rb') as f:
+                raw = f.read(4 * 1024 * 1024)
+            raw_text = raw.decode('ascii', errors='replace')
+        except Exception:
+            raw_text = ''
+
+        scan_text = all_strings_text + '\n' + raw_text
+
+        for comp_name, (pattern, cpe_vendor, cpe_product) in self.COMPONENT_PATTERNS.items():
+            matches = re.findall(pattern, scan_text, re.IGNORECASE)
+            if matches:
+                version = matches[0].strip()
+                if comp_name not in found:
+                    found[comp_name] = {
+                        'name':        comp_name,
+                        'version':     version,
+                        'cpe_vendor':  cpe_vendor,
+                        'cpe_product': cpe_product,
+                        'source':      'string_scan',
+                    }
+
+        # ── 2. Check DLL imports for known component names ────────────────
+        imports = analysis.get('imports', {})
+        for dll_entry in imports.get('dlls', []):
+            dll_name = (dll_entry.get('name') or '').lower()
+            # Strip extension and version suffix: python39.dll → python
+            base = dll_name.replace('.dll', '').replace('.so', '')
+            # Check against known DLL prefixes
+            for prefix, info in self.DLL_COMPONENT_MAP.items():
+                if base.startswith(prefix):
+                    comp_name = info['component']
+                    # Try to extract version from DLL name
+                    # e.g. python39.dll → 3.9, msvcr100.dll → 100
+                    version_match = re.search(r'(\d+)', base[len(prefix):])
+                    version = ''
+                    if version_match:
+                        raw_ver = version_match.group(1)
+                        # Normalize: "39" → "3.9", "100" → "10.0"
+                        if len(raw_ver) == 2 and raw_ver.isdigit():
+                            version = f"{raw_ver[0]}.{raw_ver[1]}"
+                        elif len(raw_ver) == 3 and raw_ver.isdigit():
+                            version = f"{raw_ver[0]}.{raw_ver[1]}.0"
+                        else:
+                            version = raw_ver
+
+                    if comp_name not in found:
+                        found[comp_name] = {
+                            'name':        comp_name,
+                            'version':     version,
+                            'cpe_vendor':  info['cpe_vendor'],
+                            'cpe_product': info['cpe_product'],
+                            'source':      f'dll_import ({dll_name})',
+                        }
+                    break
+
+        # ── 3. Extract version from PE VERSIONINFO resource ───────────────
+        pe_info = analysis.get('pe_info')
+        if pe_info:
+            # pe_info comes from _analyze_pe_header — check compile_time for hints
+            # The actual VersionInfo is in file_info if populated by cpe_extractor
+            pass
+
+        return list(found.values())
 
     # -------------------------------------------------------------------------
     # Utility

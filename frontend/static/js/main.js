@@ -354,34 +354,72 @@ function renderAiPanel(ai, panelId, riskBadgeId, summaryId, threatsId, recsId, v
 
 function createCVEItem(cve) {
     const div = document.createElement('div');
-    div.className = `cve-item ${cve.severity.toLowerCase()}`;
-    
-    // Cắt ngắn description cho list (nếu dài)
-    const shortDesc = (cve.description || 'No description').substring(0, 250) + 
+    div.className = `cve-item ${(cve.severity || 'none').toLowerCase()}`;
+
+    // Truncate description
+    const shortDesc = (cve.description || 'No description').substring(0, 250) +
                       ((cve.description || '').length > 250 ? '...' : '');
-    
+
+    // ── AI Relevance badges ───────────────────────────────────────
+    const secbertBadge = buildRelevanceBadge(
+        cve.secbert_relevance,
+        'SecBERT',
+        cve.secbert_relevance ? (cve.secbert_relevance.model || 'SecBERT').split('/').pop() : ''
+    );
+    const ctxBadge = buildRelevanceBadge(
+        cve.contextual_relevance,
+        'Context',
+        'rule-based'
+    );
+
+    // AI severity prediction badges (3 models compared)
+    let mlBadge = '';
+    if (cve.bert_prediction && cve.bert_prediction.predicted_severity) {
+        const b = cve.bert_prediction;
+        const conf = b.confidence ? ` ${(b.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge bert-badge"
+            title="Fine-tuned BERT (${escapeHtml(b.model || 'DistilBERT')})">
+            BERT: ${escapeHtml(b.predicted_severity)}${conf}</span> `;
+    } else if (cve.ml_prediction && cve.ml_prediction.predicted_severity) {
+        const ml = cve.ml_prediction;
+        const conf = ml.confidence ? ` ${(ml.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge"
+            title="Baseline: TF-IDF + Logistic Regression">
+            ML: ${escapeHtml(ml.predicted_severity)}${conf}</span> `;
+    }
+    if (cve.zero_shot_prediction && cve.zero_shot_prediction.predicted_severity) {
+        const zs = cve.zero_shot_prediction;
+        const conf = zs.confidence ? ` ${(zs.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge zs-badge"
+            title="Zero-shot NLI (${escapeHtml(zs.model || 'BART-MNLI')}) — no training data">
+            NLI: ${escapeHtml(zs.predicted_severity)}${conf}</span>`;
+    }
+
+    const hasBadges = secbertBadge || ctxBadge || mlBadge;
+
     div.innerHTML = `
         <div class="cve-header">
-            <span class="cve-id">${cve.cve_id}</span>
+            <span class="cve-id">${escapeHtml(cve.cve_id)}</span>
             <div class="cve-badges">
-                <span class="badge ${cve.severity.toLowerCase()}">${cve.severity}</span>
-                <span class="badge cvss-badge">CVSS ${cve.cvss_score}</span>
+                <span class="badge ${(cve.severity || 'none').toLowerCase()}">${escapeHtml(cve.severity || 'N/A')}</span>
+                <span class="badge cvss-badge">CVSS ${cve.cvss_score || 'N/A'}</span>
+                ${mlBadge}
             </div>
         </div>
-        <p class="cve-summary">${shortDesc}</p>
+        ${hasBadges ? `<div class="cve-relevance-row">${secbertBadge}${ctxBadge}</div>` : ''}
+        <p class="cve-summary">${escapeHtml(shortDesc)}</p>
         <div class="cve-links">
-            ${cve.references.map(ref => 
-                `<a href="${ref}" target="_blank"><i class="fas fa-external-link-alt"></i> Reference</a>`
+            ${(cve.references || []).map(ref =>
+                `<a href="${escapeHtml(ref)}" target="_blank">
+                    <i class="fas fa-external-link-alt"></i> Reference
+                </a>`
             ).join(' • ')}
         </div>
     `;
-    
-    // Làm cho toàn bộ item clickable để mở modal
+
     div.style.cursor = 'pointer';
-    div.addEventListener('click', () => {
-        showCVEDetailModal(cve);
-    });
-    
+    div.addEventListener('click', () => showCVEDetailModal(cve));
+
     return div;
 }
 
@@ -488,12 +526,48 @@ function renderPEResults(data) {
     renderRiskBanner(data.risk);
     renderFileInfo(data);
     renderPEHeader(data.pe_info);
+    renderComponents(data.components);
+    renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);
     renderSections(data.sections);
     renderImports(data.imports);
     renderStrings(data.strings);
     renderPECVEs(data);
     document.getElementById('peResults').style.display = 'block';
     document.getElementById('peResults').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Embedded component detection results
+function renderComponents(components) {
+    const card = document.getElementById('componentsCard');
+    const body = document.getElementById('componentsBody');
+    if (!card || !body) return;
+
+    if (!components || components.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'block';
+    const cards = components.map(c => {
+        const ver = c.version ? `v${escapeHtml(c.version)}` : 'version unknown';
+        const cpe = c.cpe_vendor && c.cpe_product
+            ? `cpe:2.3:a:${escapeHtml(c.cpe_vendor)}:${escapeHtml(c.cpe_product)}:${escapeHtml(c.version || '*')}:*:*:*:*:*:*:*`
+            : '';
+        return `
+        <div class="component-card">
+            <div class="component-name">${escapeHtml(c.name)}</div>
+            <div class="component-version">${ver}</div>
+            <div class="component-source">Detected via: ${escapeHtml(c.source || 'string scan')}</div>
+            ${cpe ? `<div class="component-cpe">${escapeHtml(cpe)}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    body.innerHTML = `
+        <p style="color:#6b7280; font-size:13px; margin-bottom:10px;">
+            <i class="fas fa-info-circle"></i>
+            ${components.length} embedded component(s) detected. Each may have its own CVEs independent of the main software.
+        </p>
+        <div class="components-grid">${cards}</div>`;
 }
 
 // CVE section inside PE Analysis tab
@@ -574,6 +648,167 @@ function renderPECVEs(data) {
         listEl.appendChild(createCVEItem(cve));
     });
 }
+
+// ============================================================
+// CODEBERT DEEP BEHAVIOR ANALYSIS
+// ============================================================
+
+const CODEBERT_SEVERITY_COLORS = {
+    CRITICAL: '#dc2626',
+    HIGH:     '#f97316',
+    MEDIUM:   '#eab308',
+    LOW:      '#22c55e',
+    MINIMAL:  '#9ca3af',
+};
+
+const CONFIDENCE_COLORS = {
+    high:   '#10b981',
+    medium: '#f59e0b',
+    low:    '#f97316',
+    none:   '#9ca3af',
+};
+
+function renderCodeBERTAnalysis(cb, profileText) {
+    const card = document.getElementById('codebertCard');
+    const secbertCard = document.getElementById('secbertProfileCard');
+    if (!card) return;
+
+    // ── SecBERT profile text ──────────────────────────────────────
+    if (profileText && secbertCard) {
+        document.getElementById('secbertProfileText').textContent = profileText;
+        secbertCard.style.display = 'block';
+    } else if (secbertCard) {
+        secbertCard.style.display = 'none';
+    }
+
+    if (!cb || !cb.available) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'block';
+
+    // ── Score bar ─────────────────────────────────────────────────
+    const score = cb.codebert_score || 0;
+    const pct = Math.round(score * 100);
+    const barColor = score >= 0.75 ? '#dc2626'
+                   : score >= 0.55 ? '#f97316'
+                   : score >= 0.35 ? '#eab308'
+                   : score >= 0.15 ? '#22c55e'
+                   : '#9ca3af';
+
+    const bar = document.getElementById('codebertBar');
+    if (bar) {
+        bar.style.width = `${pct}%`;
+        bar.style.background = barColor;
+    }
+    const scoreVal = document.getElementById('codebertScoreValue');
+    if (scoreVal) scoreVal.textContent = score.toFixed(3);
+
+    const confEl = document.getElementById('codebertConfidence');
+    if (confEl) {
+        const conf = cb.confidence || 'none';
+        confEl.textContent = `Confidence: ${conf.toUpperCase()}`;
+        confEl.style.color = CONFIDENCE_COLORS[conf] || '#9ca3af';
+    }
+
+    // ── Behavior summary ──────────────────────────────────────────
+    const sumEl = document.getElementById('codebertSummary');
+    if (sumEl) sumEl.textContent = cb.behavior_summary || '';
+
+    // ── Detected patterns ─────────────────────────────────────────
+    const patternsEl = document.getElementById('codebertPatterns');
+    if (!patternsEl) return;
+
+    const detected = cb.detected_patterns || [];
+    const allScores = cb.all_scores || [];
+
+    if (detected.length === 0 && allScores.length === 0) {
+        patternsEl.innerHTML = '<p style="color:#10b981; padding:8px 0;"><i class="fas fa-check-circle"></i> No malware behavior patterns detected.</p>';
+        return;
+    }
+
+    // Detected patterns (above threshold)
+    let html = '';
+    if (detected.length > 0) {
+        html += `<div class="codebert-section-title">
+            <i class="fas fa-exclamation-triangle" style="color:#ef4444"></i>
+            Detected Behavior Patterns (similarity ≥ ${0.60})
+        </div>`;
+        html += '<div class="codebert-patterns-grid">';
+        detected.forEach(p => {
+            const color = CODEBERT_SEVERITY_COLORS[p.severity] || '#9ca3af';
+            const simPct = Math.round(p.similarity * 100);
+            html += `
+            <div class="codebert-pattern-card detected">
+                <div class="pattern-header">
+                    <span class="pattern-name">${escapeHtml(p.pattern)}</span>
+                    <span class="pattern-severity-badge" style="background:${color}">${escapeHtml(p.severity)}</span>
+                    <span class="pattern-mitre">MITRE ${escapeHtml(p.mitre || '')}</span>
+                </div>
+                <div class="pattern-sim-bar-wrap">
+                    <div class="pattern-sim-bar" style="width:${simPct}%; background:${color}"></div>
+                    <span class="pattern-sim-val">${p.similarity.toFixed(3)}</span>
+                </div>
+                <p class="pattern-desc">${escapeHtml(p.description)}</p>
+            </div>`;
+        });
+        html += '</div>';
+    }
+
+    // Top-5 all scores (collapsible)
+    if (allScores.length > 0) {
+        html += `<details class="codebert-all-scores">
+            <summary>All Pattern Similarity Scores (top ${Math.min(allScores.length, 10)})</summary>
+            <div class="all-scores-table-wrap">
+            <table class="all-scores-table">
+                <thead><tr><th>Pattern</th><th>Severity</th><th>MITRE</th><th>Similarity</th></tr></thead>
+                <tbody>`;
+        allScores.forEach(p => {
+            const color = CODEBERT_SEVERITY_COLORS[p.severity] || '#9ca3af';
+            const isDetected = p.similarity >= 0.60;
+            html += `<tr class="${isDetected ? 'score-row-detected' : ''}">
+                <td>${escapeHtml(p.pattern)}</td>
+                <td><span style="color:${color};font-weight:600">${escapeHtml(p.severity)}</span></td>
+                <td><code>${escapeHtml(p.mitre || '')}</code></td>
+                <td>
+                    <span style="color:${color};font-weight:700">${p.similarity.toFixed(4)}</span>
+                    ${isDetected ? ' <span class="detected-tick">✓</span>' : ''}
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></details>';
+    }
+
+    patternsEl.innerHTML = html;
+}
+
+
+// ============================================================
+// CVE RELEVANCE BADGE HELPERS
+// ============================================================
+
+const RELEVANCE_COLORS = {
+    CRITICAL: { bg: '#fde8e8', border: '#dc2626', text: '#7f1d1d', dot: '#dc2626' },
+    HIGH:     { bg: '#fff3e6', border: '#f97316', text: '#7c2d12', dot: '#f97316' },
+    MEDIUM:   { bg: '#fefce8', border: '#eab308', text: '#713f12', dot: '#eab308' },
+    LOW:      { bg: '#f0fdf4', border: '#22c55e', text: '#14532d', dot: '#22c55e' },
+    MINIMAL:  { bg: '#f3f4f6', border: '#9ca3af', text: '#374151', dot: '#9ca3af' },
+};
+
+function buildRelevanceBadge(relevance, label, modelShort) {
+    if (!relevance) return '';
+    const lvl = relevance.label || 'MINIMAL';
+    const score = relevance.score || 0;
+    const c = RELEVANCE_COLORS[lvl] || RELEVANCE_COLORS.MINIMAL;
+    return `<span class="relevance-badge"
+        style="background:${c.bg}; border-color:${c.border}; color:${c.text};"
+        title="${escapeHtml(label)}: ${lvl} (score=${score.toFixed(3)}) — ${escapeHtml(modelShort)}">
+        <span class="relevance-dot" style="background:${c.dot}"></span>
+        ${escapeHtml(label)}: ${lvl}
+    </span>`;
+}
+
 
 // Risk banner
 const RISK_COLORS = {
@@ -773,7 +1008,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function showCVEDetailModal(cve) {
-    // Tạo modal nếu chưa có
     let modal = document.getElementById('cve-detail-modal');
     if (!modal) {
         modal = document.createElement('div');
@@ -789,31 +1023,77 @@ function showCVEDetailModal(cve) {
                     <p><strong>Severity:</strong> <span id="modal-severity"></span></p>
                     <p><strong>CVSS:</strong> <span id="modal-cvss"></span></p>
                 </div>
+                <!-- AI Relevance section -->
+                <div id="modal-ai-section" style="display:none; margin:16px 0;">
+                    <h3><i class="fas fa-brain"></i> AI Relevance to This File</h3>
+                    <div id="modal-ai-badges" style="margin:8px 0;"></div>
+                    <div id="modal-ctx-reasons"></div>
+                </div>
                 <h3>Description</h3>
                 <p id="modal-description"></p>
                 <h3>References</h3>
                 <div id="modal-references"></div>
-                <button class="btn btn-primary" onclick="closeModal()">Đóng</button>
+                <button class="btn btn-primary" onclick="closeModal()">Close</button>
             </div>
         `;
         document.body.appendChild(modal);
     }
 
-    // Đổ dữ liệu vào modal
     document.getElementById('modal-cve-id').textContent = cve.cve_id;
     document.getElementById('modal-published').textContent = (cve.published || 'N/A').substring(0, 10);
     document.getElementById('modal-cna').textContent = cve.cna || 'Unknown';
     document.getElementById('modal-severity').textContent = cve.severity;
     document.getElementById('modal-cvss').textContent = `${cve.cvss_score} (${cve.cvss_version || 'N/A'})`;
     document.getElementById('modal-description').textContent = cve.description || 'No description from NVD.';
-    
+
+    // ── AI Relevance section ──────────────────────────────────────
+    const aiSection = document.getElementById('modal-ai-section');
+    const aiBadgesEl = document.getElementById('modal-ai-badges');
+    const ctxReasonsEl = document.getElementById('modal-ctx-reasons');
+
+    const hasSec = cve.secbert_relevance;
+    const hasCtx = cve.contextual_relevance;
+
+    if (hasSec || hasCtx) {
+        aiSection.style.display = 'block';
+        let badgesHtml = '';
+        if (hasSec) {
+            badgesHtml += buildRelevanceBadge(hasSec, 'SecBERT Semantic', hasSec.model || 'SecBERT');
+            badgesHtml += `<span style="margin-left:12px; color:#6b7280; font-size:13px;">
+                score: ${hasSec.score.toFixed(4)}
+            </span>`;
+        }
+        if (hasCtx) {
+            badgesHtml += '&nbsp;';
+            badgesHtml += buildRelevanceBadge(hasCtx, 'Contextual', 'rule-based');
+            badgesHtml += `<span style="margin-left:12px; color:#6b7280; font-size:13px;">
+                score: ${hasCtx.score.toFixed(3)}
+            </span>`;
+        }
+        aiBadgesEl.innerHTML = badgesHtml;
+
+        // Contextual reasons
+        if (hasCtx && hasCtx.reasons && hasCtx.reasons.length > 0) {
+            ctxReasonsEl.innerHTML = `
+                <div style="margin-top:10px;">
+                    <strong style="color:#374151;">Why this CVE is relevant:</strong>
+                    <ul style="margin-top:6px; padding-left:20px; color:#4b5563;">
+                        ${hasCtx.reasons.map(r => `<li style="margin:4px 0;">${escapeHtml(r)}</li>`).join('')}
+                    </ul>
+                </div>`;
+        } else {
+            ctxReasonsEl.innerHTML = '';
+        }
+    } else {
+        aiSection.style.display = 'none';
+    }
+
     // References
     const refsDiv = document.getElementById('modal-references');
-    refsDiv.innerHTML = cve.references.map(ref => 
-        `<a href="${ref}" target="_blank">${ref}</a><br>`
+    refsDiv.innerHTML = (cve.references || []).map(ref =>
+        `<a href="${escapeHtml(ref)}" target="_blank">${escapeHtml(ref)}</a><br>`
     ).join('');
-    
-    // Hiển thị modal
+
     modal.style.display = 'block';
 }
 

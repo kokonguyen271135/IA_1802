@@ -24,6 +24,12 @@ anthropic>=0.40.0
 sentence-transformers>=2.7.0
 faiss-cpu>=1.7.4
 
+# ===== DEEP LEARNING (for CodeBERT + SecBERT) =====
+# Install: pip install torch transformers accelerate
+torch>=2.0.0
+transformers>=4.38.0
+accelerate>=0.26.0
+
 # ===== DATABASE =====
 sqlalchemy>=2.0.0
 

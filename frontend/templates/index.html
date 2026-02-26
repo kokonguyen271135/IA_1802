@@ -106,6 +106,53 @@
                         </div>
                     </div>
 
+                    <!-- CodeBERT Deep Behavior Analysis -->
+                    <div class="pe-card pe-card-full" id="codebertCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-brain"></i> CodeBERT Deep Behavior Analysis
+                            <span class="ai-powered-tag" style="margin-left:10px;">microsoft/codebert-base</span>
+                        </h4>
+
+                        <!-- Score bar -->
+                        <div class="codebert-score-row" id="codebertScoreRow">
+                            <div class="codebert-score-label">Maliciousness Score</div>
+                            <div class="codebert-bar-wrap">
+                                <div class="codebert-bar" id="codebertBar"></div>
+                            </div>
+                            <div class="codebert-score-value" id="codebertScoreValue">0.00</div>
+                            <div class="codebert-confidence" id="codebertConfidence"></div>
+                        </div>
+
+                        <!-- Behavior summary -->
+                        <p class="codebert-summary" id="codebertSummary"></p>
+
+                        <!-- Detected patterns -->
+                        <div id="codebertPatterns"></div>
+                    </div>
+
+                    <!-- SecBERT Behavior Profile -->
+                    <div class="pe-card pe-card-full" id="secbertProfileCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-project-diagram"></i> SecBERT Behavior Profile
+                            <span class="ai-powered-tag" style="margin-left:10px;">jackaduma/SecBERT</span>
+                        </h4>
+                        <p class="secbert-profile-text" id="secbertProfileText"></p>
+                        <small style="color:#9ca3af;">
+                            This natural-language profile is embedded by SecBERT and compared
+                            against CVE descriptions to compute semantic relevance scores.
+                        </small>
+                    </div>
+
+                    <!-- Embedded Components (vulnerability-focused) -->
+                    <div class="pe-card pe-card-full" id="componentsCard" style="display:none;">
+                        <h4><i class="fas fa-puzzle-piece"></i> Detected Embedded Components
+                            <span style="font-size:12px; font-weight:400; color:#6b7280; margin-left:8px;">
+                                version strings detected inside binary
+                            </span>
+                        </h4>
+                        <div id="componentsBody"></div>
+                    </div>
+
                     <!-- Sections -->
                     <div class="pe-card pe-card-full">
                         <h4><i class="fas fa-layer-group"></i> Sections</h4>
