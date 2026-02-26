@@ -1307,3 +1307,71 @@ body {
     font-weight: 600;
     vertical-align: middle;
 }
+/* ================================================================
+   AI SEVERITY BADGES — BERT + Zero-Shot NLI
+   ================================================================ */
+
+.badge.bert-badge {
+    background: #ede9fe;
+    color: #5b21b6;
+    border: 1px solid #a78bfa;
+    font-size: 11px;
+}
+
+.badge.zs-badge {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+    font-size: 11px;
+}
+
+/* ================================================================
+   EMBEDDED COMPONENTS PANEL
+   ================================================================ */
+
+.components-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.component-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 160px;
+    flex: 1;
+}
+
+.component-card:hover {
+    border-color: #6366f1;
+    box-shadow: 0 2px 8px rgba(99,102,241,0.12);
+}
+
+.component-name {
+    font-weight: 700;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+.component-version {
+    font-family: monospace;
+    font-size: 13px;
+    color: #6366f1;
+    margin: 3px 0;
+}
+
+.component-source {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+.component-cpe {
+    font-size: 11px;
+    font-family: monospace;
+    color: #6b7280;
+    margin-top: 4px;
+    word-break: break-all;
+}

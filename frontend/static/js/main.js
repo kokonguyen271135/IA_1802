@@ -372,14 +372,27 @@ function createCVEItem(cve) {
         'rule-based'
     );
 
-    // ML severity prediction badge
+    // AI severity prediction badges (3 models compared)
     let mlBadge = '';
-    if (cve.ml_prediction && cve.ml_prediction.predicted_severity) {
+    if (cve.bert_prediction && cve.bert_prediction.predicted_severity) {
+        const b = cve.bert_prediction;
+        const conf = b.confidence ? ` ${(b.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge bert-badge"
+            title="Fine-tuned BERT (${escapeHtml(b.model || 'DistilBERT')})">
+            BERT: ${escapeHtml(b.predicted_severity)}${conf}</span> `;
+    } else if (cve.ml_prediction && cve.ml_prediction.predicted_severity) {
         const ml = cve.ml_prediction;
-        const conf = ml.confidence ? ` (${(ml.confidence * 100).toFixed(0)}%)` : '';
-        mlBadge = `<span class="badge ml-badge" title="ML: ${escapeHtml(ml.source || 'TF-IDF+LR')}">
-            ML: ${escapeHtml(ml.predicted_severity)}${conf}
-        </span>`;
+        const conf = ml.confidence ? ` ${(ml.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge"
+            title="Baseline: TF-IDF + Logistic Regression">
+            ML: ${escapeHtml(ml.predicted_severity)}${conf}</span> `;
+    }
+    if (cve.zero_shot_prediction && cve.zero_shot_prediction.predicted_severity) {
+        const zs = cve.zero_shot_prediction;
+        const conf = zs.confidence ? ` ${(zs.confidence * 100).toFixed(0)}%` : '';
+        mlBadge += `<span class="badge ml-badge zs-badge"
+            title="Zero-shot NLI (${escapeHtml(zs.model || 'BART-MNLI')}) — no training data">
+            NLI: ${escapeHtml(zs.predicted_severity)}${conf}</span>`;
     }
 
     const hasBadges = secbertBadge || ctxBadge || mlBadge;
@@ -513,6 +526,7 @@ function renderPEResults(data) {
     renderRiskBanner(data.risk);
     renderFileInfo(data);
     renderPEHeader(data.pe_info);
+    renderComponents(data.components);
     renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);
     renderSections(data.sections);
     renderImports(data.imports);
@@ -520,6 +534,40 @@ function renderPEResults(data) {
     renderPECVEs(data);
     document.getElementById('peResults').style.display = 'block';
     document.getElementById('peResults').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Embedded component detection results
+function renderComponents(components) {
+    const card = document.getElementById('componentsCard');
+    const body = document.getElementById('componentsBody');
+    if (!card || !body) return;
+
+    if (!components || components.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'block';
+    const cards = components.map(c => {
+        const ver = c.version ? `v${escapeHtml(c.version)}` : 'version unknown';
+        const cpe = c.cpe_vendor && c.cpe_product
+            ? `cpe:2.3:a:${escapeHtml(c.cpe_vendor)}:${escapeHtml(c.cpe_product)}:${escapeHtml(c.version || '*')}:*:*:*:*:*:*:*`
+            : '';
+        return `
+        <div class="component-card">
+            <div class="component-name">${escapeHtml(c.name)}</div>
+            <div class="component-version">${ver}</div>
+            <div class="component-source">Detected via: ${escapeHtml(c.source || 'string scan')}</div>
+            ${cpe ? `<div class="component-cpe">${escapeHtml(cpe)}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    body.innerHTML = `
+        <p style="color:#6b7280; font-size:13px; margin-bottom:10px;">
+            <i class="fas fa-info-circle"></i>
+            ${components.length} embedded component(s) detected. Each may have its own CVEs independent of the main software.
+        </p>
+        <div class="components-grid">${cards}</div>`;
 }
 
 // CVE section inside PE Analysis tab
