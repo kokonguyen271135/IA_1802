@@ -142,7 +142,7 @@ class CPEExtractor:
         'ansible':               ('redhat', 'ansible'),
         'terraform':             ('hashicorp', 'terraform'),
         'vagrant':               ('hashicorp', 'vagrant'),
-        'putty':                 ('putty', 'putty'),
+        'putty':                 ('simon_tatham', 'putty'),
         'filezilla':             ('filezilla-project', 'filezilla'),
         'winscp':                ('winscp', 'winscp'),
 

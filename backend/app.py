@@ -514,17 +514,23 @@ def search_by_name():
         cpe, vendor, product, version, ai_cpe, sem_cpe = \
             _resolve_cpe(cpe_info, software_name)
 
-        if not cpe:
-            return jsonify({'success': False, 'error': 'Could not resolve CPE for this software'})
-
         max_results = data.get('max_results', None)
-        cves        = nvd_api.search_by_cpe(cpe, max_results=max_results)
-        data_source = 'NVD (CPE query)'
 
-        # Keyword fallback
+        # Query NVD by CPE if resolved, else go straight to keyword search
+        cves        = []
+        data_source = 'NVD (keyword search)'
+        if cpe:
+            cves        = nvd_api.search_by_cpe(cpe, max_results=max_results)
+            data_source = 'NVD (CPE query)'
+
+        # Keyword fallback: CPE resolved but 0 results, OR CPE not resolved at all
         if not cves:
-            cves        = nvd_api.search_by_keyword(software_name, max_results=max_results or 50)
+            kw          = f"{software_name} {version}".strip() if version else software_name
+            cves        = nvd_api.search_by_keyword(kw, max_results=max_results or 50)
             data_source = 'NVD (keyword search)'
+
+        if not cves and not cpe:
+            return jsonify({'success': False, 'error': 'Could not resolve CPE or find CVEs for this software'})
 
         stats = _calc_stats(cves)
         cves  = ai_enrich_severity(cves)
