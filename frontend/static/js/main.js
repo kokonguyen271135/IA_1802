@@ -524,17 +524,30 @@ function showPEError(msg) {
 
 // --- Render all results ---
 function renderPEResults(data) {
+    // Primary: risk + CVEs + components + AI behavior
     renderRiskBanner(data.risk);
-    renderFileInfo(data);
-    renderPEHeader(data.pe_info);
+    renderPECVEs(data);
     renderComponents(data.components);
     renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);
+
+    // Technical details (inside collapsed section in HTML)
+    renderFileInfo(data);
+    renderPEHeader(data.pe_info);
     renderSections(data.sections);
     renderImports(data.imports);
     renderStrings(data.strings);
-    renderPECVEs(data);
+
     document.getElementById('peResults').style.display = 'block';
     document.getElementById('peResults').scrollIntoView({ behavior: 'smooth' });
+}
+
+function toggleTechDetails() {
+    const body = document.getElementById('techDetailsBody');
+    const icon = document.getElementById('techDetailsIcon');
+    if (!body) return;
+    const visible = body.style.display !== 'none';
+    body.style.display = visible ? 'none' : 'block';
+    icon.className = visible ? 'fas fa-chevron-right' : 'fas fa-chevron-down';
 }
 
 // Embedded component detection results

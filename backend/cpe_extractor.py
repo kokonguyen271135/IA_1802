@@ -3,275 +3,364 @@
 """
 CPE Extractor - Extract CPE from executable files
 Supports: PE files (Windows executables, DLLs)
+
+Extraction pipeline:
+  1. Read PE VersionInfo resource (ProductName, FileVersion, CompanyName)
+  2. Match ProductName + CompanyName against KNOWN_PATTERNS
+  3. Fall back to filename pattern matching
+  4. Fall back to generic (caller will invoke Claude AI / FAISS)
 """
 
 import pefile
 import re
 from pathlib import Path
 
+
 class CPEExtractor:
     """Extract CPE information from files"""
-    
+
+    # -------------------------------------------------------------------------
+    # Known software patterns
+    # Format: keyword → (cpe_vendor, cpe_product)
+    # keyword is matched (substring) against ProductName (lowercase) or CompanyName
+    # -------------------------------------------------------------------------
+    KNOWN_PATTERNS = {
+        # ── Microsoft products ──────────────────────────────────────────────
+        'sql server':            ('microsoft', 'sql_server'),
+        'sqlserver':             ('microsoft', 'sql_server'),
+        'sql2019':               ('microsoft', 'sql_server'),
+        'sql2022':               ('microsoft', 'sql_server'),
+        'sql2017':               ('microsoft', 'sql_server'),
+        'sql2016':               ('microsoft', 'sql_server'),
+        'sql2014':               ('microsoft', 'sql_server'),
+        'microsoft office':      ('microsoft', 'office'),
+        'microsoft word':        ('microsoft', 'word'),
+        'microsoft excel':       ('microsoft', 'excel'),
+        'microsoft outlook':     ('microsoft', 'outlook'),
+        'microsoft powerpoint':  ('microsoft', 'powerpoint'),
+        'microsoft access':      ('microsoft', 'access'),
+        'microsoft teams':       ('microsoft', 'teams'),
+        'microsoft edge':        ('microsoft', 'edge'),
+        'internet explorer':     ('microsoft', 'internet_explorer'),
+        'visual studio':         ('microsoft', 'visual_studio'),
+        'visual studio code':    ('microsoft', 'visual_studio_code'),
+        'windows defender':      ('microsoft', 'windows_defender'),
+        'exchange server':       ('microsoft', 'exchange_server'),
+        'sharepoint':            ('microsoft', 'sharepoint_server'),
+        'skype':                 ('microsoft', 'skype'),
+        'onedrive':              ('microsoft', 'onedrive'),
+        'powershell':            ('microsoft', 'powershell'),
+        'iis':                   ('microsoft', 'iis'),
+        '.net framework':        ('microsoft', '.net_framework'),
+        'dotnet':                ('microsoft', '.net_framework'),
+        'net framework':         ('microsoft', '.net_framework'),
+
+        # ── Web servers ──────────────────────────────────────────────────────
+        'apache':                ('apache', 'http_server'),
+        'httpd':                 ('apache', 'http_server'),
+        'nginx':                 ('nginx', 'nginx'),
+        'lighttpd':              ('lighttpd', 'lighttpd'),
+        'tomcat':                ('apache', 'tomcat'),
+        'jboss':                 ('redhat', 'jboss_enterprise_application_platform'),
+        'wildfly':               ('redhat', 'wildfly'),
+        'websphere':             ('ibm', 'websphere_application_server'),
+        'weblogic':              ('oracle', 'weblogic_server'),
+        'glassfish':             ('oracle', 'glassfish_server'),
+
+        # ── Databases ────────────────────────────────────────────────────────
+        'mysql':                 ('oracle', 'mysql'),
+        'postgresql':            ('postgresql', 'postgresql'),
+        'postgres':              ('postgresql', 'postgresql'),
+        'mongodb':               ('mongodb', 'mongodb'),
+        'redis':                 ('redis', 'redis'),
+        'sqlite':                ('sqlite', 'sqlite'),
+        'elasticsearch':         ('elastic', 'elasticsearch'),
+        'kibana':                ('elastic', 'kibana'),
+        'mariadb':               ('mariadb', 'mariadb'),
+        'oracle database':       ('oracle', 'database_server'),
+        'oracle db':             ('oracle', 'database_server'),
+        'db2':                   ('ibm', 'db2'),
+        'cassandra':             ('apache', 'cassandra'),
+
+        # ── Security libraries ───────────────────────────────────────────────
+        'openssl':               ('openssl', 'openssl'),
+        'openssh':               ('openbsd', 'openssh'),
+        'libssl':                ('openssl', 'openssl'),
+        'libcurl':               ('haxx', 'libcurl'),
+        'curl':                  ('haxx', 'curl'),
+        'gnupg':                 ('gnupg', 'gnupg'),
+        'gnutls':                ('gnu', 'gnutls'),
+
+        # ── Languages & runtimes ─────────────────────────────────────────────
+        'python':                ('python', 'python'),
+        'php':                   ('php', 'php'),
+        'node.js':               ('nodejs', 'node.js'),
+        'nodejs':                ('nodejs', 'node.js'),
+        'ruby':                  ('ruby-lang', 'ruby'),
+        'golang':                ('golang', 'go'),
+        'java runtime':          ('oracle', 'jre'),
+        'java se':               ('oracle', 'jre'),
+        'jre':                   ('oracle', 'jre'),
+        'jdk':                   ('oracle', 'jdk'),
+        'openjdk':               ('oracle', 'openjdk'),
+        'perl':                  ('perl', 'perl'),
+
+        # ── Frameworks & libraries ───────────────────────────────────────────
+        'log4j':                 ('apache', 'log4j'),
+        'struts':                ('apache', 'struts'),
+        'spring framework':      ('pivotal_software', 'spring_framework'),
+        'spring boot':           ('pivotal_software', 'spring_boot'),
+        'django':                ('djangoproject', 'django'),
+        'rails':                 ('rubyonrails', 'ruby_on_rails'),
+        'laravel':               ('laravel', 'laravel'),
+        'symfony':               ('sensio', 'symfony'),
+        'wordpress':             ('wordpress', 'wordpress'),
+        'drupal':                ('drupal', 'drupal'),
+        'joomla':                ('joomla', 'joomla!'),
+        'magento':               ('magento', 'magento'),
+
+        # ── Browsers ─────────────────────────────────────────────────────────
+        'chrome':                ('google', 'chrome'),
+        'chromium':              ('google', 'chrome'),
+        'firefox':               ('mozilla', 'firefox'),
+        'mozilla firefox':       ('mozilla', 'firefox'),
+        'safari':                ('apple', 'safari'),
+
+        # ── Archive / compression ────────────────────────────────────────────
+        'winrar':                ('rarlab', 'winrar'),
+        '7-zip':                 ('7-zip', '7-zip'),
+        '7zip':                  ('7-zip', '7-zip'),
+        'winzip':                ('winzip', 'winzip'),
+
+        # ── Developer tools ──────────────────────────────────────────────────
+        'git':                   ('git-scm', 'git'),
+        'jenkins':               ('jenkins', 'jenkins'),
+        'gitlab':                ('gitlab', 'gitlab'),
+        'github desktop':        ('github', 'github_desktop'),
+        'docker':                ('docker', 'docker'),
+        'kubernetes':            ('kubernetes', 'kubernetes'),
+        'ansible':               ('redhat', 'ansible'),
+        'terraform':             ('hashicorp', 'terraform'),
+        'vagrant':               ('hashicorp', 'vagrant'),
+        'putty':                 ('putty', 'putty'),
+        'filezilla':             ('filezilla-project', 'filezilla'),
+        'winscp':                ('winscp', 'winscp'),
+
+        # ── Adobe products ───────────────────────────────────────────────────
+        'adobe acrobat':         ('adobe', 'acrobat'),
+        'acrobat reader':        ('adobe', 'acrobat_reader'),
+        'adobe reader':          ('adobe', 'acrobat_reader'),
+        'adobe photoshop':       ('adobe', 'photoshop'),
+        'adobe flash':           ('adobe', 'flash_player'),
+        'flash player':          ('adobe', 'flash_player'),
+        'adobe illustrator':     ('adobe', 'illustrator'),
+
+        # ── Communication ────────────────────────────────────────────────────
+        'zoom':                  ('zoom', 'zoom'),
+        'slack':                 ('slack', 'slack'),
+        'discord':               ('discord', 'discord'),
+        'telegram':              ('telegram', 'telegram'),
+        'signal':                ('signal', 'signal'),
+        'whatsapp':              ('whatsapp', 'whatsapp'),
+
+        # ── Security tools ───────────────────────────────────────────────────
+        'wireshark':             ('wireshark', 'wireshark'),
+        'nmap':                  ('nmap', 'nmap'),
+        'metasploit':            ('rapid7', 'metasploit_framework'),
+
+        # ── Network / infrastructure ─────────────────────────────────────────
+        'openvpn':               ('openvpn', 'openvpn'),
+        'stunnel':               ('stunnel', 'stunnel'),
+
+        # ── Media & misc ─────────────────────────────────────────────────────
+        'vlc':                   ('videolan', 'vlc_media_player'),
+        'notepad++':             ('notepad-plus-plus', 'notepad++'),
+        'notepad plus':          ('notepad-plus-plus', 'notepad++'),
+        'sublime text':          ('sublimehq', 'sublime_text'),
+        'vim':                   ('vim', 'vim'),
+        'virtualbox':            ('oracle', 'vm_virtualbox'),
+        'vmware':                ('vmware', 'workstation'),
+    }
+
+    # Company name → CPE vendor mapping
+    COMPANY_TO_VENDOR = {
+        'microsoft':        'microsoft',
+        'oracle':           'oracle',
+        'adobe systems':    'adobe',
+        'adobe':            'adobe',
+        'google':           'google',
+        'mozilla':          'mozilla',
+        'apache':           'apache',
+        'nginx':            'nginx',
+        'postgresql':       'postgresql',
+        'openssl':          'openssl',
+        'python software':  'python',
+        'nodejs':           'nodejs',
+        'docker':           'docker',
+        'elastic':          'elastic',
+        'redis':            'redis',
+        'mongodb':          'mongodb',
+        'rarlab':           'rarlab',
+        '7-zip':            '7-zip',
+        'simon tatham':     'putty',
+        'notepad++':        'notepad-plus-plus',
+        'videolan':         'videolan',
+        'zoom video':       'zoom',
+        'slack':            'slack',
+    }
+
     def __init__(self):
-        self.known_patterns = self._load_known_patterns()
-    
-    def _load_known_patterns(self):
-        """Load known software patterns for CPE matching"""
-        return {
-            # Format: software_name: (vendor, product)
-            'winrar': ('rarlab', 'winrar'),
-            'apache': ('apache', 'http_server'),
-            'httpd': ('apache', 'http_server'),
-            'nginx': ('nginx', 'nginx'),
-            'mysql': ('mysql', 'mysql'),
-            'php': ('php', 'php'),
-            'openssl': ('openssl', 'openssl'),
-            'python': ('python', 'python'),
-            'node': ('nodejs', 'node.js'),
-            'java': ('oracle', 'jre'),
-            '7-zip': ('7-zip', '7-zip'),
-            'notepad++': ('notepad-plus-plus', 'notepad++'),
-        }
-    
-    def extract_from_file(self, file_path):
+        pass
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    def extract_from_file(self, file_path) -> dict:
         """
-        Extract CPE from file
-        
-        Args:
-            file_path: Path to file
-            
-        Returns:
-            dict: {
-                'cpe': CPE string,
-                'vendor': Vendor name,
-                'product': Product name,
-                'version': Version,
-                'file_info': Additional file info
-            }
+        Extract CPE info from a file.
+        Returns dict: {cpe, vendor, product, version, file_info, extraction_method}
         """
-        
         file_path = Path(file_path)
-        
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
-        
-        # Check file type
         ext = file_path.suffix.lower()
-        
-        if ext in ['.exe', '.dll', '.sys']:
+        if ext in ('.exe', '.dll', '.sys', '.ocx', '.drv'):
             return self._extract_from_pe(file_path)
-        else:
-            return self._extract_from_generic(file_path)
-    
-    def _extract_from_pe(self, file_path):
-        """Extract info from PE (Portable Executable) files"""
-        
-        try:
-            pe = pefile.PE(str(file_path))
-            
-            # Extract version info
-            file_info = self._extract_pe_version_info(pe)
-            
-            # Get product name and version
-            product_name = file_info.get('ProductName', '')
-            file_version = file_info.get('FileVersion', '')
-            company_name = file_info.get('CompanyName', '')
-            
-            # Clean and normalize
-            product_clean = self._normalize_name(product_name)
-            version_clean = self._extract_version(file_version)
-            
-            # Match to known vendor/product
-            vendor, product = self._match_vendor_product(
-                product_clean, 
-                company_name
-            )
-            
-            # Build CPE
-            cpe = self._build_cpe(vendor, product, version_clean)
-            
-            return {
-                'cpe': cpe,
-                'vendor': vendor,
-                'product': product,
-                'version': version_clean,
-                'file_info': file_info,
-                'extraction_method': 'pe_version_info'
-            }
-            
-        except Exception as e:
-            # Fallback: extract from filename
-            return self._extract_from_filename(file_path)
-    
-    def _extract_pe_version_info(self, pe):
-        """Extract version information from PE file"""
-        
-        info = {}
-        
-        if hasattr(pe, 'VS_VERSIONINFO'):
-            if hasattr(pe, 'FileInfo'):
-                for file_info in pe.FileInfo:
-                    if hasattr(file_info, 'StringTable'):
-                        for string_table in file_info.StringTable:
-                            for key, value in string_table.entries.items():
-                                try:
-                                    key_str = key.decode('utf-8', errors='ignore')
-                                    value_str = value.decode('utf-8', errors='ignore')
-                                    info[key_str] = value_str
-                                except:
-                                    pass
-        
-        return info
-    
-    def _extract_from_filename(self, file_path):
-        """Extract info from filename as fallback"""
-        
-        filename = file_path.stem.lower()
-        
-        # Try to match known patterns
-        for soft_name, (vendor, product) in self.known_patterns.items():
-            if soft_name in filename:
-                # Try to extract version from filename
-                version = self._extract_version_from_string(filename)
-                cpe = self._build_cpe(vendor, product, version)
-                
-                return {
-                    'cpe': cpe,
-                    'vendor': vendor,
-                    'product': product,
-                    'version': version,
-                    'file_info': {'FileName': file_path.name},
-                    'extraction_method': 'filename_pattern'
-                }
-        
-        # Generic fallback
-        return {
-            'cpe': None,
-            'vendor': 'unknown',
-            'product': filename,
-            'version': '',
-            'file_info': {'FileName': file_path.name},
-            'extraction_method': 'generic_fallback'
-        }
-    
-    def _extract_from_generic(self, file_path):
-        """Extract from non-PE files"""
         return self._extract_from_filename(file_path)
-    
-    def _normalize_name(self, name):
-        """Normalize software name"""
-        if not name:
-            return ''
-        
-        name = name.lower()
-        name = re.sub(r'[^\w\s.-]', '', name)
-        name = name.strip()
-        
-        return name
-    
-    def _extract_version(self, version_string):
-        """Extract clean version number"""
-        if not version_string:
-            return ''
-        
-        # Match version pattern like 1.2.3.4 or 1.2.3
-        match = re.search(r'(\d+(?:\.\d+){1,3})', version_string)
-        if match:
-            return match.group(1)
-        
-        return ''
-    
-    def _extract_version_from_string(self, text):
-        """Extract version from any string"""
-        # Common patterns: v1.2.3, version1.2.3, 1.2.3
-        patterns = [
-            r'v?(\d+\.\d+(?:\.\d+)?)',
-            r'version[_\s]?(\d+\.\d+(?:\.\d+)?)',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
-        return ''
-    
-    def _match_vendor_product(self, product_name, company_name):
-        """Match product name to known vendor/product"""
-        
-        product_lower = product_name.lower()
-        company_lower = company_name.lower() if company_name else ''
-        
-        # Check known patterns
-        for soft_name, (vendor, product) in self.known_patterns.items():
-            if soft_name in product_lower or soft_name in company_lower:
-                return vendor, product
-        
-        # Try to infer vendor from company name
-        if company_name:
-            # Clean company name
-            vendor = re.sub(r'\s+(inc|corp|llc|ltd|gmbh)\.?$', '', company_lower)
-            vendor = re.sub(r'[^\w]', '_', vendor)
-            product = re.sub(r'[^\w]', '_', product_lower)
-            return vendor, product
-        
-        # Fallback: use product name as both vendor and product
-        clean = re.sub(r'[^\w]', '_', product_lower)
-        return clean, clean
-    
-    def _build_cpe(self, vendor, product, version):
-        """Build CPE 2.3 string"""
-        
-        if not vendor or not product:
-            return None
-        
-        # CPE 2.3 format: cpe:2.3:part:vendor:product:version:update:edition:language:sw_edition:target_sw:target_hw:other
-        # We use part='a' (application)
-        
-        version_str = version if version else '-'
-        
-        cpe = f"cpe:2.3:a:{vendor}:{product}:{version_str}:*:*:*:*:*:*:*"
-        
-        return cpe
-    
-    def extract_from_software_name(self, software_name, version=''):
-        """
-        Extract CPE from software name and version
-        Useful for manual input or searching
-        
-        Args:
-            software_name: Software name (e.g., "WinRAR", "Apache")
-            version: Version string (optional)
-            
-        Returns:
-            dict with CPE info
-        """
-        
-        name_clean = self._normalize_name(software_name)
-        version_clean = version if version else ''
-        
-        # Match to known patterns
-        vendor, product = self._match_vendor_product(name_clean, '')
-        
-        # Build CPE
-        cpe = self._build_cpe(vendor, product, version_clean)
-        
+
+    def extract_from_software_name(self, software_name: str, version: str = '') -> dict:
+        """Extract CPE from a software name string (manual/search input)."""
+        name_lower = software_name.lower().strip()
+        vendor, product = self._match_name(name_lower, company='')
+        cpe = self._build_cpe(vendor, product, version)
         return {
             'cpe': cpe,
             'vendor': vendor,
             'product': product,
-            'version': version_clean,
-            'extraction_method': 'manual_input'
+            'version': version,
+            'extraction_method': 'manual_input',
         }
 
+    # -------------------------------------------------------------------------
+    # Internal
+    # -------------------------------------------------------------------------
 
-# Quick test
-if __name__ == "__main__":
-    extractor = CPEExtractor()
-    
-    # Test with software name
-    result = extractor.extract_from_software_name("WinRAR", "6.0")
-    print("Test: WinRAR 6.0")
-    print(f"CPE: {result['cpe']}")
-    print(f"Vendor: {result['vendor']}")
-    print(f"Product: {result['product']}")
+    def _extract_from_pe(self, file_path: Path) -> dict:
+        """Read PE VersionInfo then match to CPE."""
+        file_info = {}
+        try:
+            pe = pefile.PE(str(file_path), fast_load=False)
+            file_info = self._read_version_info(pe)
+            pe.close()
+        except Exception:
+            pass
+
+        product_name = file_info.get('ProductName', '').strip()
+        file_version = file_info.get('FileVersion', '').strip()
+        company_name = file_info.get('CompanyName', '').strip()
+        version      = self._clean_version(file_version)
+
+        vendor, product = self._match_name(product_name.lower(), company_name.lower())
+
+        if vendor and product:
+            return {
+                'cpe':               self._build_cpe(vendor, product, version),
+                'vendor':            vendor,
+                'product':           product,
+                'version':           version,
+                'file_info':         file_info,
+                'extraction_method': 'pe_version_info',
+            }
+
+        # Fall through to filename
+        return self._extract_from_filename(file_path, file_info=file_info)
+
+    def _read_version_info(self, pe) -> dict:
+        """Parse VS_VERSIONINFO StringTable."""
+        info = {}
+        try:
+            if hasattr(pe, 'VS_VERSIONINFO') and hasattr(pe, 'FileInfo'):
+                for fi_list in pe.FileInfo:
+                    items = fi_list if isinstance(fi_list, list) else [fi_list]
+                    for fi in items:
+                        if hasattr(fi, 'StringTable'):
+                            for st in fi.StringTable:
+                                for k, v in st.entries.items():
+                                    try:
+                                        key = k.decode('utf-8', errors='ignore').strip()
+                                        val = v.decode('utf-8', errors='ignore').strip()
+                                        if key and val:
+                                            info[key] = val
+                                    except Exception:
+                                        pass
+        except Exception:
+            pass
+        return info
+
+    def _extract_from_filename(self, file_path: Path, file_info: dict = None) -> dict:
+        """Match the filename stem against KNOWN_PATTERNS."""
+        stem   = file_path.stem.lower()
+        vendor, product = self._match_name(stem, company='')
+        version = self._extract_version_from_str(stem)
+
+        if vendor and product:
+            method = 'filename_pattern'
+            cpe    = self._build_cpe(vendor, product, version)
+        else:
+            method = 'generic_fallback'
+            cpe    = None
+
+        return {
+            'cpe':               cpe,
+            'vendor':            vendor or 'unknown',
+            'product':           product or stem,
+            'version':           version,
+            'file_info':         file_info or {'FileName': file_path.name},
+            'extraction_method': method,
+        }
+
+    def _match_name(self, name: str, company: str) -> tuple:
+        """
+        Match name/company against KNOWN_PATTERNS.
+        Returns (vendor, product) or ('', '').
+        Longest keyword wins to avoid 'sql' matching before 'sql server'.
+        """
+        for keyword in sorted(self.KNOWN_PATTERNS, key=len, reverse=True):
+            if keyword in name:
+                return self.KNOWN_PATTERNS[keyword]
+
+        if company:
+            for keyword in sorted(self.KNOWN_PATTERNS, key=len, reverse=True):
+                if keyword in company:
+                    return self.KNOWN_PATTERNS[keyword]
+
+            for co_kw, vendor in self.COMPANY_TO_VENDOR.items():
+                if co_kw in company:
+                    product = re.sub(r'[^\w]', '_', name.strip()) or 'unknown'
+                    return vendor, product
+
+        return '', ''
+
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+
+    def _clean_version(self, version_string: str) -> str:
+        if not version_string:
+            return ''
+        m = re.search(r'(\d+(?:\.\d+){1,3})', version_string)
+        return m.group(1) if m else ''
+
+    def _extract_version_from_str(self, text: str) -> str:
+        for pat in (r'v?(\d+\.\d+(?:\.\d+)?)', r'version[_\s]?(\d+\.\d+(?:\.\d+)?)'):
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                return m.group(1)
+        return ''
+
+    def _build_cpe(self, vendor: str, product: str, version: str) -> str:
+        if not vendor or not product:
+            return None
+        v = version if version else '-'
+        return f"cpe:2.3:a:{vendor}:{product}:{v}:*:*:*:*:*:*:*"
