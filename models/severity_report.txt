@@ -1,9 +1,10 @@
 CVE Severity Classifier - Training Report
 ==========================================
+Unique records   : 7,242  (after deduplication — no data leakage)
 Training samples : 5,793
 Test samples     : 1,449
 Test accuracy    : 0.6957 (69.6%)
-CV accuracy      : 0.4939 ± 0.0805
+CV accuracy      : 0.6825 ± 0.0099  (5-fold stratified)
 
 Model: TF-IDF (max_features=50k, ngram=(1,2)) + LogisticRegression (C=5, class_weight=balanced)
 
