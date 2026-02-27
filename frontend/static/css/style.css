@@ -1375,3 +1375,367 @@ body {
     margin-top: 4px;
     word-break: break-all;
 }
+
+/* ================================================================
+   HEADER BADGES
+   ================================================================ */
+
+.header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.header-badges {
+    display: flex;
+    gap: 10px;
+}
+
+.hdr-badge {
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.3);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.hdr-badge.ai {
+    background: rgba(139,92,246,0.4);
+    border-color: rgba(196,181,253,0.5);
+}
+
+/* ================================================================
+   UPLOAD HINTS & CARD HINTS
+   ================================================================ */
+
+.upload-hint {
+    font-size: 13px;
+    color: #9ca3af;
+    margin: 6px 0 16px;
+    font-family: monospace;
+}
+
+.upload-icon {
+    font-size: 64px;
+    color: var(--primary);
+    margin-bottom: 16px;
+    display: block;
+}
+
+.card-hint {
+    font-size: 12px;
+    font-weight: 400;
+    color: #6b7280;
+    margin-left: 8px;
+}
+
+/* ================================================================
+   PACKAGE FILE TAB
+   ================================================================ */
+
+.pkg-formats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    margin-top: 20px;
+    padding: 14px 20px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #4b5563;
+}
+
+.fmt-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+}
+
+.fmt-badge.python  { background: #3b82f6; }
+.fmt-badge.npm     { background: #10b981; }
+.fmt-badge.java    { background: #f59e0b; }
+.fmt-badge.php     { background: #8b5cf6; }
+.fmt-badge.ruby    { background: #ef4444; }
+.fmt-badge.go      { background: #06b6d4; }
+
+/* Package results summary */
+.pkg-summary-header {
+    margin-bottom: 20px;
+}
+
+.pkg-summary {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 20px;
+    background: #f0f9ff;
+    border: 2px solid #0ea5e9;
+    border-radius: 12px;
+    flex-wrap: wrap;
+}
+
+.pkg-eco-badge {
+    font-size: 14px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 20px;
+    color: white;
+    background: #0ea5e9;
+}
+
+.pkg-summary-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.pkg-summary-stats span {
+    font-size: 14px;
+    color: #0c4a6e;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Per-package card */
+.pkg-card {
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-left: 6px solid #d1d5db;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.pkg-card-clean    { border-left-color: #10b981; }
+.pkg-card-low      { border-left-color: #3b82f6; }
+.pkg-card-medium   { border-left-color: #eab308; }
+.pkg-card-high     { border-left-color: #f97316; }
+.pkg-card-critical { border-left-color: #dc2626; }
+
+.pkg-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.pkg-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pkg-eco {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+}
+
+.eco-python  { background: #3b82f6; }
+.eco-npm     { background: #10b981; }
+.eco-maven   { background: #f59e0b; }
+.eco-gradle  { background: #f59e0b; }
+.eco-php     { background: #8b5cf6; }
+.eco-ruby    { background: #ef4444; }
+.eco-go      { background: #06b6d4; }
+.eco-cargo   { background: #f97316; }
+.eco-rust    { background: #f97316; }
+
+.pkg-ver {
+    font-family: monospace;
+    font-size: 13px;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 1px 8px;
+    border-radius: 8px;
+}
+
+.pkg-card-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pkg-sev-dot {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.pkg-sev-dot.critical { background: #fee2e2; color: #dc2626; }
+.pkg-sev-dot.high     { background: #fff7ed; color: #f97316; }
+.pkg-sev-dot.medium   { background: #fefce8; color: #b45309; }
+.pkg-sev-dot.low      { background: #f0fdf4; color: #15803d; }
+
+.pkg-cpe {
+    padding: 6px 18px;
+    font-size: 12px;
+    color: #6b7280;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.pkg-cpe code {
+    font-family: monospace;
+    background: #f3f4f6;
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.pkg-cve-list {
+    padding: 12px 18px;
+}
+
+/* ================================================================
+   UNIFIED AI SEVERITY BADGE
+   ================================================================ */
+
+.ai-sev-badge {
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+
+.ai-sev-critical { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+.ai-sev-high     { background: #fff7ed; color: #9a3412; border-color: #fdba74; }
+.ai-sev-medium   { background: #fefce8; color: #854d0e; border-color: #fde047; }
+.ai-sev-low      { background: #f0fdf4; color: #14532d; border-color: #86efac; }
+
+/* ================================================================
+   UNIFIED RELEVANCE BADGE (replaces secbert + contextual)
+   ================================================================ */
+
+.relevance-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1.5px solid #d1d5db;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f9fafb;
+    color: #374151;
+}
+
+.rel-critical { background: #fde8e8; border-color: #dc2626; color: #7f1d1d; }
+.rel-high     { background: #fff3e6; border-color: #f97316; color: #7c2d12; }
+.rel-medium   { background: #fefce8; border-color: #eab308; color: #713f12; }
+.rel-low      { background: #f0fdf4; border-color: #22c55e; color: #14532d; }
+.rel-minimal  { background: #f3f4f6; border-color: #9ca3af; color: #374151; }
+
+.relevance-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    background: currentColor;
+    opacity: 0.7;
+}
+
+/* ================================================================
+   CPE QUERY EXAMPLES
+   ================================================================ */
+
+.cpe-examples {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.cpe-examples code {
+    background: #f3f4f6;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #2563eb;
+    border: 1px solid #e5e7eb;
+    transition: background 0.2s;
+}
+
+.cpe-examples code:hover {
+    background: #dbeafe;
+}
+
+.cpe-section {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+/* ================================================================
+   MODAL AI / RELEVANCE STYLES
+   ================================================================ */
+
+.modal-ai-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: #374151;
+}
+
+.modal-ensemble {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.ens-score {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.ens-score.sev-critical { background: #fce7f3; color: #9d174d; }
+.ens-score.sev-high     { background: #fff7ed; color: #9a3412; }
+.ens-score.sev-medium   { background: #fefce8; color: #854d0e; }
+.ens-score.sev-low      { background: #f0fdf4; color: #14532d; }
+
+.rel-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid;
+}
+
+/* ================================================================
+   SEARCH SECTION
+   ================================================================ */
+
+.search-section {
+    max-width: 620px;
+    margin: 0 auto;
+}
+

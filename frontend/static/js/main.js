@@ -1,626 +1,406 @@
-// frontend/static/js/main.js
+// VulnScan AI – Main Frontend Logic
+// Đồ án: Công cụ Đánh giá Lỗ hổng Phần mềm kết hợp AI & CVE Database
 
-// Global variables
-let currentResults = null;
+'use strict';
 
-// Tab switching
-function showTab(tabName) {
-    // Hide all tabs
-    document.querySelectorAll('.tab-content').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    
-    // Show selected tab
-    document.getElementById(`${tabName}-tab`).classList.add('active');
-    event.target.closest('.tab-btn').classList.add('active');
-    
-    // Hide results and errors
-    hideResults();
-    hideError();
-}
-
-// File upload handling
-const uploadBox = document.getElementById('uploadBox');
-const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
-const fileName = document.getElementById('fileName');
-
-// Drag and drop
-uploadBox.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadBox.style.borderColor = '#10b981';
-    uploadBox.style.background = '#f0fdf4';
-});
-
-uploadBox.addEventListener('dragleave', () => {
-    uploadBox.style.borderColor = '#2563eb';
-    uploadBox.style.background = 'transparent';
-});
-
-uploadBox.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadBox.style.borderColor = '#2563eb';
-    uploadBox.style.background = 'transparent';
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        handleFileSelect(files[0]);
-    }
-});
-
-// File input change
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        handleFileSelect(e.target.files[0]);
-    }
-});
-
-function handleFileSelect(file) {
-    fileName.textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
-    fileInfo.style.display = 'block';
-    fileInput.files = createFileList(file);
-}
-
-function createFileList(file) {
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(file);
-    return dataTransfer.files;
-}
-
-// Scan file
-async function scanFile() {
-    const file = fileInput.files[0];
-    
-    if (!file) {
-        showError('Please select a file first');
-        return;
-    }
-    
-    showLoading();
-    hideError();
-    hideResults();
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-        const response = await fetch('/api/scan', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const data = await response.json();
-        
-        hideLoading();
-        
-        if (data.success) {
-            displayResults(data);
-        } else {
-            showError(data.error || 'Failed to scan file');
-        }
-        
-    } catch (error) {
-        hideLoading();
-        showError(`Error: ${error.message}`);
-    }
-}
-
-// Search software
-async function searchSoftware() {
-    const softwareName = document.getElementById('softwareName').value.trim();
-    const softwareVersion = document.getElementById('softwareVersion').value.trim();
-    
-    if (!softwareName) {
-        showError('Please enter a software name');
-        return;
-    }
-    
-    showLoading();
-    hideError();
-    hideResults();
-    
-    try {
-        const response = await fetch('/api/search', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                software_name: softwareName,
-                version: softwareVersion
-            })
-        });
-        
-        const data = await response.json();
-        
-        hideLoading();
-        
-        if (data.success) {
-            displayResults(data);
-        } else {
-            showError(data.error || 'Failed to search software');
-        }
-        
-    } catch (error) {
-        hideLoading();
-        showError(`Error: ${error.message}`);
-    }
-}
-
-// Query CPE
-async function queryCPE() {
-    const cpeString = document.getElementById('cpeString').value.trim();
-    
-    if (!cpeString) {
-        showError('Please enter a CPE string');
-        return;
-    }
-    
-    showLoading();
-    hideError();
-    hideResults();
-    
-    try {
-        const response = await fetch('/api/query-cpe', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                cpe: cpeString
-            })
-        });
-        
-        const data = await response.json();
-        
-        hideLoading();
-        
-        if (data.success) {
-            displayResults(data);
-        } else {
-            showError(data.error || 'Failed to query CPE');
-        }
-        
-    } catch (error) {
-        hideLoading();
-        showError(`Error: ${error.message}`);
-    }
-}
-
-// Set example
-function setExample(name, version) {
-    document.getElementById('softwareName').value = name;
-    document.getElementById('softwareVersion').value = version;
-}
-
-// Display results
-function displayResults(data) {
-    currentResults = data;
-
-    // Show results section
-    document.getElementById('results').style.display = 'block';
-
-    // Display CPE
-    document.getElementById('resultCPE').textContent = data.cpe || 'N/A';
-
-    // Display statistics
-    const stats = data.statistics;
-    document.getElementById('statTotal').textContent = stats.total_cves;
-    document.getElementById('statCritical').textContent = stats.by_severity.CRITICAL || 0;
-    document.getElementById('statHigh').textContent = stats.by_severity.HIGH || 0;
-    document.getElementById('statMedium').textContent = stats.by_severity.MEDIUM || 0;
-    document.getElementById('statLow').textContent = stats.by_severity.LOW || 0;
-    document.getElementById('statAvgCVSS').textContent = stats.avg_cvss.toFixed(1);
-
-    // ── AI Analysis panel ──────────────────────────────────────────────────
-    renderAiPanel(data.ai_analysis, 'aiAnalysisPanel', 'aiOverallRiskBadge',
-                  'aiRiskSummary', 'aiTopThreats', 'aiRecommendations', 'aiAttackVectors');
-
-    // Display CVE list
-    const cveList = document.getElementById('cveList');
-    cveList.innerHTML = '';
-
-    if (data.vulnerabilities.length === 0) {
-        cveList.innerHTML = '<p style="text-align: center; padding: 40px; color: #10b981;">No vulnerabilities found!</p>';
-        return;
-    }
-
-    data.vulnerabilities.forEach(cve => {
-        const cveItem = createCVEItem(cve);
-        cveList.appendChild(cveItem);
-    });
-
-    // Scroll to results
-    document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
-}
-
-// ── AI panel renderer ──────────────────────────────────────────────────────
-const AI_RISK_COLORS = {
-    CRITICAL: { bg: '#fce7f3', border: '#db2777', text: '#831843', badge: '#db2777' },
-    HIGH:     { bg: '#fff7ed', border: '#f97316', text: '#7c2d12', badge: '#f97316' },
-    MEDIUM:   { bg: '#fefce8', border: '#eab308', text: '#713f12', badge: '#eab308' },
-    LOW:      { bg: '#f0fdf4', border: '#22c55e', text: '#14532d', badge: '#22c55e' },
+// ── Global state ─────────────────────────────────────────────────────────────
+const _state = {
+    binary:   null,   // last PE analysis result
+    packages: null,   // last package analysis result
+    search:   null,   // last search/CPE result
 };
 
-function renderAiPanel(ai, panelId, riskBadgeId, summaryId, threatsId, recsId, vectorsId) {
-    const panel = document.getElementById(panelId);
-    if (!panel) return;
-
-    if (!ai || !ai.success) {
-        panel.style.display = 'none';
-        return;
-    }
-
-    const colors = AI_RISK_COLORS[ai.overall_risk] || AI_RISK_COLORS.MEDIUM;
-
-    // Style the panel border
-    panel.style.borderColor = colors.border;
-    panel.style.background  = colors.bg;
-
-    // Overall risk badge
-    const badge = document.getElementById(riskBadgeId);
-    if (badge) {
-        badge.textContent = ai.overall_risk;
-        badge.style.background = colors.badge;
-        badge.style.color = '#fff';
-    }
-
-    // Risk summary
-    const summaryEl = document.getElementById(summaryId);
-    if (summaryEl) summaryEl.textContent = ai.risk_summary || '';
-
-    // Top threats
-    const threatsEl = document.getElementById(threatsId);
-    if (threatsEl) {
-        threatsEl.innerHTML = (ai.top_threats || [])
-            .map(t => `<li>${escapeHtml(t)}</li>`).join('');
-    }
-
-    // Recommendations
-    const recsEl = document.getElementById(recsId);
-    if (recsEl) {
-        recsEl.innerHTML = (ai.recommendations || [])
-            .map(r => `<li>${escapeHtml(r)}</li>`).join('');
-    }
-
-    // Attack vectors
-    const vectorsEl = document.getElementById(vectorsId);
-    if (vectorsEl) {
-        vectorsEl.innerHTML = (ai.key_attack_vectors || [])
-            .map(v => `<span class="ai-vector-tag">${escapeHtml(v)}</span>`).join('');
-    }
-
-    panel.style.display = 'block';
-}
-
-// // Create CVE item HTML
-// function createCVEItem(cve) {
-//     const div = document.createElement('div');
-//     div.className = `cve-item ${cve.severity.toLowerCase()}`;
-    
-//     div.innerHTML = `
-//         <div class="cve-header">
-//             <span class="cve-id">${cve.cve_id}</span>
-//             <div class="cve-badges">
-//                 <span class="badge ${cve.severity.toLowerCase()}">${cve.severity}</span>
-//                 <span class="badge cvss-badge">CVSS ${cve.cvss_score}</span>
-//             </div>
-//         </div>
-//         <p class="cve-summary">${cve.description || 'No description available'}</p>
-//         <div class="cve-links">
-//             ${cve.references.map(ref => `<a href="${ref}" target="_blank"><i class="fas fa-external-link-alt"></i> Reference</a>`).join('')}
-//         </div>
-//     `;
-    
-//     return div;
-// }
-// function createCVEItem(cve) {
-//     const description = (cve.description || 'No description available');
-//     const shortDesc = description.length > 250 
-//         ? description.substring(0, 247) + '...' 
-//         : description;
-
-//     const div = document.createElement('div');
-//     div.className = `cve-item ${cve.severity.toLowerCase()}`;
-    
-//     div.innerHTML = `
-//         <div class="cve-header">
-//             <span class="cve-id">${cve.cve_id}</span>
-//             <div class="cve-badges">
-//                 <span class="badge ${cve.severity.toLowerCase()}">${cve.severity}</span>
-//                 <span class="badge cvss-badge">CVSS ${cve.cvss_score}</span>
-//             </div>
-//         </div>
-//         <p class="cve-description">${shortDesc}</p>
-//         <div class="cve-links">
-//             ${cve.references.map(ref => `<a href="${ref}" target="_blank"><i class="fas fa-external-link-alt"></i> Reference</a>`).join('')}
-//         </div>
-//     `;
-    
-//     // Bonus: click để xem full description
-//     if (description.length > 250) {
-//         div.querySelector('.cve-description').addEventListener('click', () => {
-//             alert(description); // hoặc mở modal đẹp hơn
-//         });
-//         div.querySelector('.cve-description').style.cursor = 'pointer';
-//     }
-    
-//     return div;
-// }
-
-function createCVEItem(cve) {
-    const div = document.createElement('div');
-    div.className = `cve-item ${(cve.severity || 'none').toLowerCase()}`;
-
-    // Truncate description
-    const shortDesc = (cve.description || 'No description').substring(0, 250) +
-                      ((cve.description || '').length > 250 ? '...' : '');
-
-    // ── AI Relevance badges ───────────────────────────────────────
-    const secbertBadge = buildRelevanceBadge(
-        cve.secbert_relevance,
-        'SecBERT',
-        cve.secbert_relevance ? (cve.secbert_relevance.model || 'SecBERT').split('/').pop() : ''
-    );
-    const ctxBadge = buildRelevanceBadge(
-        cve.contextual_relevance,
-        'Context',
-        'rule-based'
-    );
-
-    // AI severity prediction badges (3 models compared)
-    let mlBadge = '';
-    if (cve.bert_prediction && cve.bert_prediction.predicted_severity) {
-        const b = cve.bert_prediction;
-        const conf = b.confidence ? ` ${(b.confidence * 100).toFixed(0)}%` : '';
-        mlBadge += `<span class="badge ml-badge bert-badge"
-            title="Fine-tuned BERT (${escapeHtml(b.model || 'DistilBERT')})">
-            BERT: ${escapeHtml(b.predicted_severity)}${conf}</span> `;
-    } else if (cve.ml_prediction && cve.ml_prediction.predicted_severity) {
-        const ml = cve.ml_prediction;
-        const conf = ml.confidence ? ` ${(ml.confidence * 100).toFixed(0)}%` : '';
-        mlBadge += `<span class="badge ml-badge"
-            title="Baseline: TF-IDF + Logistic Regression">
-            ML: ${escapeHtml(ml.predicted_severity)}${conf}</span> `;
-    }
-    if (cve.zero_shot_prediction && cve.zero_shot_prediction.predicted_severity) {
-        const zs = cve.zero_shot_prediction;
-        const conf = zs.confidence ? ` ${(zs.confidence * 100).toFixed(0)}%` : '';
-        mlBadge += `<span class="badge ml-badge zs-badge"
-            title="Zero-shot NLI (${escapeHtml(zs.model || 'BART-MNLI')}) — no training data">
-            NLI: ${escapeHtml(zs.predicted_severity)}${conf}</span>`;
-    }
-
-    const hasBadges = secbertBadge || ctxBadge || mlBadge;
-
-    div.innerHTML = `
-        <div class="cve-header">
-            <span class="cve-id">${escapeHtml(cve.cve_id)}</span>
-            <div class="cve-badges">
-                <span class="badge ${(cve.severity || 'none').toLowerCase()}">${escapeHtml(cve.severity || 'N/A')}</span>
-                <span class="badge cvss-badge">CVSS ${cve.cvss_score || 'N/A'}</span>
-                ${mlBadge}
-            </div>
-        </div>
-        ${hasBadges ? `<div class="cve-relevance-row">${secbertBadge}${ctxBadge}</div>` : ''}
-        <p class="cve-summary">${escapeHtml(shortDesc)}</p>
-        <div class="cve-links">
-            ${(cve.references || []).map(ref =>
-                `<a href="${escapeHtml(ref)}" target="_blank">
-                    <i class="fas fa-external-link-alt"></i> Reference
-                </a>`
-            ).join(' • ')}
-        </div>
-    `;
-
-    div.style.cursor = 'pointer';
-    div.addEventListener('click', () => showCVEDetailModal(cve));
-
-    return div;
-}
-
-// Export JSON
-function exportJSON() {
-    if (!currentResults) return;
-    
-    const dataStr = JSON.stringify(currentResults, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(dataBlob);
-    link.download = `vulnerability-scan-${Date.now()}.json`;
-    link.click();
-}
-
-// Export CSV
-function exportCSV() {
-    if (!currentResults || !currentResults.vulnerabilities) return;
-    
-    // CSV header
-    let csv = 'CVE ID,Severity,CVSS Score,Summary\n';
-    
-    // CSV rows
-    currentResults.vulnerabilities.forEach(cve => {
-        const summary = cve.summary.replace(/"/g, '""');
-        csv += `"${cve.cve_id}","${cve.severity}",${cve.cvss_score},"${summary}"\n`;
-    });
-    
-    const dataBlob = new Blob([csv], { type: 'text/csv' });
-    
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(dataBlob);
-    link.download = `vulnerability-scan-${Date.now()}.csv`;
-    link.click();
-}
-
-// UI helpers
-function showLoading() {
-    document.getElementById('loading').style.display = 'block';
-}
-
-function hideLoading() {
-    document.getElementById('loading').style.display = 'none';
-}
-
-function showError(message) {
-    document.getElementById('errorMessage').textContent = message;
-    document.getElementById('error').style.display = 'block';
-}
-
-function hideError() {
+// ── Tab management ────────────────────────────────────────────────────────────
+function showTab(name, btn) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById(`${name}-tab`).classList.add('active');
+    if (btn) btn.classList.add('active');
+    _hideSharedResults();
     document.getElementById('error').style.display = 'none';
 }
 
-function hideResults() {
-    document.getElementById('results').style.display = 'none';
+function _hideSharedResults() {
+    document.getElementById('results').style.display  = 'none';
+    document.getElementById('loading').style.display  = 'none';
 }
 
-// ============================================================
-// PE STATIC ANALYSIS
-// ============================================================
+// ── File upload wiring ────────────────────────────────────────────────────────
+function _wireUpload(boxId, inputId, nameId, infoId) {
+    const box   = document.getElementById(boxId);
+    const input = document.getElementById(inputId);
 
-let currentPEResults = null;
+    box.addEventListener('dragover', e => {
+        e.preventDefault();
+        box.style.borderColor = '#10b981';
+        box.style.background  = '#f0fdf4';
+    });
+    box.addEventListener('dragleave', () => {
+        box.style.borderColor = '';
+        box.style.background  = '';
+    });
+    box.addEventListener('drop', e => {
+        e.preventDefault();
+        box.style.borderColor = '';
+        box.style.background  = '';
+        if (e.dataTransfer.files.length) _selectFile(e.dataTransfer.files[0], nameId, infoId, input);
+    });
+    box.addEventListener('click', () => input.click());
+    input.addEventListener('change', e => {
+        if (e.target.files.length) _selectFile(e.target.files[0], nameId, infoId, input);
+    });
+}
 
-// --- Run analysis ---
-async function analyzePE() {
-    const file = fileInput.files[0];
-    if (!file) { showPEError('Please select a file first.'); return; }
+function _selectFile(file, nameId, infoId, input) {
+    document.getElementById(nameId).textContent =
+        `\uD83D\uDCC4 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    document.getElementById(infoId).style.display = 'block';
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+}
 
-    document.getElementById('peLoading').style.display  = 'block';
-    document.getElementById('peResults').style.display  = 'none';
-    document.getElementById('peError').style.display    = 'none';
+document.addEventListener('DOMContentLoaded', () => {
+    _wireUpload('binaryUploadBox', 'binaryFileInput', 'binaryFileName', 'binaryFileInfo');
+    _wireUpload('pkgUploadBox',    'pkgFileInput',    'pkgFileName',    'pkgFileInfo');
+
+    fetch('/api/status').then(r => r.json()).then(d => {
+        console.log('[VulnScan] Status:', d);
+    }).catch(() => {});
+});
+
+// ── Unified analyze() ─────────────────────────────────────────────────────────
+async function analyzeFile(type) {
+    const inputId  = type === 'binary' ? 'binaryFileInput' : 'pkgFileInput';
+    const loadId   = type === 'binary' ? 'binaryLoading'   : 'pkgLoading';
+    const errId    = type === 'binary' ? 'binaryError'      : 'pkgError';
+    const errMsgId = type === 'binary' ? 'binaryErrorMsg'   : 'pkgErrorMsg';
+    const resId    = type === 'binary' ? 'binaryResults'    : 'pkgResults';
+
+    const file = document.getElementById(inputId).files[0];
+    if (!file) { _showError(errMsgId, errId, 'Vui lòng chọn file trước.'); return; }
+
+    document.getElementById(loadId).style.display = 'block';
+    document.getElementById(errId).style.display  = 'none';
+    document.getElementById(resId).style.display  = 'none';
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-        const res  = await fetch('/api/pe-analyze', { method: 'POST', body: formData });
+        const res  = await fetch('/api/analyze', { method: 'POST', body: formData });
         const data = await res.json();
+        document.getElementById(loadId).style.display = 'none';
 
-        document.getElementById('peLoading').style.display = 'none';
+        if (!data.success && !data.analysis_type) {
+            _showError(errMsgId, errId, data.error || 'Phân tích thất bại.');
+            return;
+        }
 
-        if (data.success) {
-            currentPEResults = data;
-            renderPEResults(data);
+        if (data.analysis_type === 'binary') {
+            _state.binary = data;
+            _renderBinaryResults(data);
+        } else if (data.analysis_type === 'packages') {
+            _state.packages = data;
+            _renderPackageResults(data);
         } else {
-            showPEError(data.error || 'Analysis failed.');
+            _showError(errMsgId, errId, data.error || 'Loại file không hỗ trợ.');
         }
     } catch (err) {
-        document.getElementById('peLoading').style.display = 'none';
-        showPEError(`Network error: ${err.message}`);
+        document.getElementById(loadId).style.display = 'none';
+        _showError(errMsgId, errId, `Lỗi mạng: ${err.message}`);
     }
 }
 
-function showPEError(msg) {
-    document.getElementById('peErrorMessage').textContent = msg;
-    document.getElementById('peError').style.display      = 'block';
-    document.getElementById('peLoading').style.display    = 'none';
+function _showError(msgId, errId, msg) {
+    document.getElementById(msgId).textContent = msg;
+    document.getElementById(errId).style.display = 'block';
 }
 
-// --- Render all results ---
-function renderPEResults(data) {
-    renderRiskBanner(data.risk);
-    renderFileInfo(data);
-    renderPEHeader(data.pe_info);
-    renderComponents(data.components);
-    renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);
-    renderSections(data.sections);
-    renderImports(data.imports);
-    renderStrings(data.strings);
-    renderPECVEs(data);
-    document.getElementById('peResults').style.display = 'block';
-    document.getElementById('peResults').scrollIntoView({ behavior: 'smooth' });
+// ── Search ────────────────────────────────────────────────────────────────────
+async function searchSoftware() {
+    const name    = document.getElementById('softwareName').value.trim();
+    const version = document.getElementById('softwareVersion').value.trim();
+    if (!name) { showError('Vui lòng nhập tên phần mềm'); return; }
+
+    showLoading(); hideError(); hideResults();
+
+    try {
+        const res  = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ software_name: name, version }),
+        });
+        const data = await res.json();
+        hideLoading();
+        if (data.success) { _state.search = data; displayResults(data); }
+        else showError(data.error || 'Không tìm thấy kết quả');
+    } catch (err) {
+        hideLoading();
+        showError(`Lỗi: ${err.message}`);
+    }
 }
 
-// Embedded component detection results
-function renderComponents(components) {
-    const card = document.getElementById('componentsCard');
-    const body = document.getElementById('componentsBody');
-    if (!card || !body) return;
+// ── CPE Query ─────────────────────────────────────────────────────────────────
+async function queryCPE() {
+    const cpe = document.getElementById('cpeString').value.trim();
+    if (!cpe) { showError('Vui lòng nhập CPE string'); return; }
 
-    if (!components || components.length === 0) {
-        card.style.display = 'none';
+    showLoading(); hideError(); hideResults();
+
+    try {
+        const res  = await fetch('/api/query-cpe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cpe }),
+        });
+        const data = await res.json();
+        hideLoading();
+        if (data.success) { _state.search = data; displayResults(data); }
+        else showError(data.error || 'Query thất bại');
+    } catch (err) {
+        hideLoading();
+        showError(`Lỗi: ${err.message}`);
+    }
+}
+
+function setExample(name, ver) {
+    document.getElementById('softwareName').value    = name;
+    document.getElementById('softwareVersion').value = ver;
+}
+
+function setCPE(el) {
+    document.getElementById('cpeString').value = el.textContent.trim();
+}
+
+// ── Shared search/CPE results ─────────────────────────────────────────────────
+function displayResults(data) {
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('resultCPE').textContent  = data.cpe || 'N/A';
+
+    const s = data.statistics || {};
+    document.getElementById('statTotal').textContent    = s.total_cves || 0;
+    document.getElementById('statCritical').textContent = (s.by_severity || {}).CRITICAL || 0;
+    document.getElementById('statHigh').textContent     = (s.by_severity || {}).HIGH     || 0;
+    document.getElementById('statMedium').textContent   = (s.by_severity || {}).MEDIUM   || 0;
+    document.getElementById('statLow').textContent      = (s.by_severity || {}).LOW      || 0;
+    document.getElementById('statAvgCVSS').textContent  = (s.avg_cvss || 0).toFixed(1);
+
+    _renderAiPanel(data.ai_analysis, {
+        panel: 'aiAnalysisPanel', badge: 'aiOverallRiskBadge',
+        summary: 'aiRiskSummary', threats: 'aiTopThreats',
+        recs: 'aiRecommendations', vectors: 'aiAttackVectors',
+    });
+
+    const listEl = document.getElementById('cveList');
+    listEl.innerHTML = '';
+    const vulns = data.vulnerabilities || [];
+    if (!vulns.length) {
+        listEl.innerHTML = '<p style="text-align:center; padding:40px; color:#10b981;"><i class="fas fa-check-circle"></i> Không tìm thấy CVE nào!</p>';
+    } else {
+        vulns.forEach(cve => listEl.appendChild(_createCVEItem(cve)));
+    }
+
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ── Binary / PE results renderer ─────────────────────────────────────────────
+function _renderBinaryResults(data) {
+    _renderRiskBanner(data.risk || {});
+    _renderFileInfo(data);
+    _renderPEHeader(data.pe_info);
+    _renderComponents(data.components);
+    _renderSections(data.sections);
+    _renderImports(data.imports);
+    _renderStrings(data.strings);
+    _renderPECVEs(data);
+    document.getElementById('binaryResults').style.display = 'block';
+    document.getElementById('binaryResults').scrollIntoView({ behavior: 'smooth' });
+}
+
+function _renderRiskBanner(risk) {
+    const COLORS = {
+        CLEAN:    { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
+        LOW:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e3a8a' },
+        MEDIUM:   { bg: '#fef3c7', border: '#f59e0b', text: '#78350f' },
+        HIGH:     { bg: '#fee2e2', border: '#ef4444', text: '#7f1d1d' },
+        CRITICAL: { bg: '#fce7f3', border: '#db2777', text: '#831843' },
+    };
+    const level  = risk.level || 'CLEAN';
+    const c      = COLORS[level] || COLORS.CLEAN;
+    const banner = document.getElementById('riskBanner');
+    banner.style.background  = c.bg;
+    banner.style.borderColor = c.border;
+    banner.style.color       = c.text;
+    document.getElementById('riskLevel').textContent = level;
+    document.getElementById('riskScore').textContent = `Risk Score: ${risk.score || 0} / 100`;
+    document.getElementById('riskFactors').innerHTML =
+        (risk.factors || []).map(f => `<div class="risk-factor-item">&bull; ${_esc(f)}</div>`).join('');
+}
+
+function _renderFileInfo(data) {
+    document.getElementById('peInfoName').textContent   = data.filename || '-';
+    const fi = data.file_info || {};
+    document.getElementById('peInfoSize').textContent   = fi.size_human || '-';
+    document.getElementById('peInfoMD5').textContent    = fi.md5    || '-';
+    document.getElementById('peInfoSHA256').textContent = fi.sha256 || '-';
+}
+
+function _renderPEHeader(peInfo) {
+    const tbl = document.getElementById('peHeaderTable');
+    if (!peInfo) {
+        tbl.innerHTML = '<tr><td colspan="2" style="color:#9ca3af">Không phải PE file hoặc không đọc được header</td></tr>';
         return;
     }
+    const rows = [
+        ['Architecture', peInfo.machine],
+        ['Compiled',     peInfo.compile_time],
+        ['Subsystem',    peInfo.subsystem],
+        ['Type',         peInfo.is_dll ? 'DLL' : 'EXE'],
+        ['Entry Point',  peInfo.entry_point],
+        ['Image Base',   peInfo.image_base],
+        ['Sections',     peInfo.num_sections],
+        ['TLS Callbacks', peInfo.has_tls ? 'CÓ (đáng ngờ)' : 'Không'],
+    ];
+    tbl.innerHTML = rows.map(([k, v]) =>
+        `<tr><td>${_esc(k)}</td><td>${_esc(String(v ?? '-'))}</td></tr>`
+    ).join('');
+}
+
+function _renderComponents(components) {
+    const card = document.getElementById('componentsCard');
+    const body = document.getElementById('componentsBody');
+    if (!components || !components.length) { card.style.display = 'none'; return; }
 
     card.style.display = 'block';
-    const cards = components.map(c => {
-        const ver = c.version ? `v${escapeHtml(c.version)}` : 'version unknown';
-        const cpe = c.cpe_vendor && c.cpe_product
-            ? `cpe:2.3:a:${escapeHtml(c.cpe_vendor)}:${escapeHtml(c.cpe_product)}:${escapeHtml(c.version || '*')}:*:*:*:*:*:*:*`
-            : '';
-        return `
-        <div class="component-card">
-            <div class="component-name">${escapeHtml(c.name)}</div>
-            <div class="component-version">${ver}</div>
-            <div class="component-source">Detected via: ${escapeHtml(c.source || 'string scan')}</div>
-            ${cpe ? `<div class="component-cpe">${escapeHtml(cpe)}</div>` : ''}
-        </div>`;
-    }).join('');
-
     body.innerHTML = `
         <p style="color:#6b7280; font-size:13px; margin-bottom:10px;">
             <i class="fas fa-info-circle"></i>
-            ${components.length} embedded component(s) detected. Each may have its own CVEs independent of the main software.
+            ${components.length} thư viện nhúng được phát hiện. Mỗi thư viện có thể có CVE riêng độc lập với phần mềm chính.
         </p>
-        <div class="components-grid">${cards}</div>`;
+        <div class="components-grid">
+        ${components.map(c => {
+            const ver = c.version ? `v${_esc(c.version)}` : 'version không rõ';
+            return `<div class="component-card">
+                <div class="component-name">${_esc(c.name)}</div>
+                <div class="component-version">${ver}</div>
+                <div class="component-source">Phát hiện qua: ${_esc(c.source || 'string scan')}</div>
+            </div>`;
+        }).join('')}
+        </div>`;
 }
 
-// CVE section inside PE Analysis tab
-function renderPECVEs(data) {
-    const cpe         = data.cpe;
-    const cpeInfo     = data.cpe_info || {};
-    const vulns       = data.vulnerabilities || [];
-    const stats       = data.cve_statistics || {};
-    const cpeError    = data.cpe_error;
+function _renderSections(sections) {
+    const el = document.getElementById('peSectionsBody');
+    if (!sections || !sections.length) {
+        el.innerHTML = '<p style="color:#9ca3af; padding:10px">Không có section</p>';
+        return;
+    }
+    const rows = sections.map(s => {
+        const pct   = Math.min((s.entropy / 8) * 100, 100).toFixed(0);
+        const color = s.entropy > 7.0 ? '#ef4444' : s.entropy > 6.0 ? '#f59e0b' : '#10b981';
+        const flags = [
+            s.executable    ? '<span class="sec-flag exec">X</span>' : '',
+            s.writable      ? '<span class="sec-flag write">W</span>' : '',
+            s.readable      ? '<span class="sec-flag read">R</span>' : '',
+            s.high_entropy  ? '<span class="sec-flag danger">HIGH ENTROPY</span>' : '',
+            s.suspicious_name ? '<span class="sec-flag danger">ODD NAME</span>' : '',
+        ].join('');
+        return `<tr>
+            <td class="sec-name">${_esc(s.name || '(none)')}</td>
+            <td>${_fmtBytes(s.virtual_size)}</td>
+            <td>
+                <div class="entropy-bar-wrap">
+                    <div class="entropy-bar" style="width:${pct}%;background:${color}"></div>
+                </div>
+                <span style="font-size:12px;color:${color}">${s.entropy.toFixed(2)}</span>
+            </td>
+            <td>${flags}</td>
+        </tr>`;
+    }).join('');
+    el.innerHTML = `<table class="sections-table">
+        <thead><tr><th>Name</th><th>Size</th><th>Entropy</th><th>Flags</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
 
-    const listEl      = document.getElementById('peCVEList');
-    const statsEl     = document.getElementById('peCVEStats');
-    const cpeInfoEl   = document.getElementById('peCPEInfo');
-    const cpeBadge    = document.getElementById('peCPEBadge');
+function _renderImports(imports) {
+    const el = document.getElementById('peImportsBody');
+    if (!imports || !(imports.suspicious || []).length) {
+        el.innerHTML = '<p style="color:#10b981; padding:10px"><i class="fas fa-check-circle"></i> Không phát hiện API đáng ngờ.</p>';
+        return;
+    }
+    const bycat = imports.by_category || {};
+    const blocks = Object.entries(bycat).map(([cat, entries]) => {
+        const risk    = (entries[0]?.risk || 'LOW').toLowerCase();
+        const apiList = entries.map(e =>
+            `<span class="api-badge risk-${risk}">${_esc(e.function)}</span>`
+        ).join(' ');
+        return `<div class="import-category">
+            <div class="import-cat-header">
+                <span class="import-cat-name">${_esc(cat)}</span>
+                <span class="risk-badge risk-${risk}">${entries[0]?.risk || ''}</span>
+                <span class="import-count">${entries.length} API</span>
+            </div>
+            <div class="api-list">${apiList}</div>
+        </div>`;
+    }).join('');
+    el.innerHTML = `<p class="imports-summary">
+        <strong>${imports.total_dlls} DLLs</strong>, <strong>${imports.total_functions} functions</strong>
+        &mdash; <strong style="color:#ef4444">${imports.suspicious.length} đáng ngờ</strong>
+    </p>${blocks}`;
+}
 
-    // --- No CPE extracted ---
+function _renderStrings(strings) {
+    const el = document.getElementById('peStringsBody');
+    if (!strings || !Object.keys(strings).length) {
+        el.innerHTML = '<p style="color:#9ca3af; padding:10px">Không tìm thấy chuỗi đặc biệt.</p>';
+        return;
+    }
+    el.innerHTML = Object.entries(strings).map(([cat, items]) => `
+        <div class="string-category">
+            <div class="string-cat-header">${_esc(cat)} <span class="import-count">${items.length}</span></div>
+            <div class="string-items">${items.map(s => `<div class="string-item">${_esc(s)}</div>`).join('')}</div>
+        </div>`
+    ).join('');
+}
+
+function _renderPECVEs(data) {
+    const cpe     = data.cpe;
+    const cpeInfo = data.cpe_info || {};
+    const vulns   = data.vulnerabilities || [];
+    const stats   = data.cve_statistics  || {};
+    const listEl  = document.getElementById('peCVEList');
+    const statsEl = document.getElementById('peCVEStats');
+
     if (!cpe) {
-        const reason = cpeError
-            ? `CPE extraction failed: ${cpeError}`
-            : (cpeInfo.error || 'Could not identify software version from this file.');
         listEl.innerHTML = `<p style="color:#f59e0b; padding:10px;">
-            <i class="fas fa-exclamation-triangle"></i>&nbsp;
-            ${escapeHtml(reason)}
+            <i class="fas fa-exclamation-triangle"></i>
+            ${_esc(data.cpe_error || 'Không xác định được phiên bản phần mềm từ file này.')}
         </p>`;
-        statsEl.style.display  = 'none';
-        cpeInfoEl.style.display = 'none';
-        cpeBadge.style.display  = 'none';
+        statsEl.style.display = 'none';
+        document.getElementById('peCPEInfo').style.display = 'none';
+        document.getElementById('peCPEBadge').style.display = 'none';
         return;
     }
 
-    // --- Show CPE ---
-    cpeBadge.textContent    = cpe;
-    cpeBadge.style.display  = 'inline';
-    document.getElementById('peCPEString').textContent = cpe;
-    const meta = [
+    document.getElementById('peCPEBadge').textContent = cpe;
+    document.getElementById('peCPEBadge').style.display = 'inline';
+    document.getElementById('peCPEString').textContent  = cpe;
+    document.getElementById('peCPEMeta').textContent    = [
         cpeInfo.vendor  ? `Vendor: ${cpeInfo.vendor}`   : '',
         cpeInfo.product ? `Product: ${cpeInfo.product}` : '',
         cpeInfo.version ? `Version: ${cpeInfo.version}` : '',
-        cpeInfo.extraction_method ? `(via ${cpeInfo.extraction_method})` : '',
+        cpeInfo.extraction_method ? `(${cpeInfo.extraction_method})` : '',
     ].filter(Boolean).join('  |  ');
-    document.getElementById('peCPEMeta').textContent = meta;
-    cpeInfoEl.style.display = 'block';
+    document.getElementById('peCPEInfo').style.display = 'block';
 
-    // --- No CVEs found ---
-    if (vulns.length === 0) {
-        listEl.innerHTML = `<p style="color:#10b981; padding:10px;">
-            <i class="fas fa-check-circle"></i>&nbsp;No known CVEs found for this software version.
-        </p>`;
+    if (!vulns.length) {
+        listEl.innerHTML = '<p style="color:#10b981; padding:10px;"><i class="fas fa-check-circle"></i> Không tìm thấy CVE nào cho phiên bản này.</p>';
         statsEl.style.display = 'none';
         return;
     }
 
-    // --- Stats ---
     const sev = stats.by_severity || {};
     document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
     document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
@@ -630,483 +410,317 @@ function renderPECVEs(data) {
     document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
     statsEl.style.display = 'grid';
 
-    // --- AI Analysis panel (PE tab) ---
-    renderAiPanel(data.ai_analysis, 'peAiPanel', 'peAiOverallRiskBadge',
-                  'peAiRiskSummary', 'peAiTopThreats', 'peAiRecommendations', 'peAiAttackVectors');
-
-    // --- CVE list ---
-    listEl.innerHTML = '';
-    const header = document.createElement('h3');
-    header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
-    header.innerHTML = `<i class="fas fa-list"></i> Vulnerabilities
-        <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
-            (showing ${vulns.length} of ${stats.total_cves || vulns.length})
-        </span>`;
-    listEl.appendChild(header);
-
-    vulns.forEach(cve => {
-        listEl.appendChild(createCVEItem(cve));
+    _renderAiPanel(data.ai_analysis, {
+        panel: 'peAiPanel', badge: 'peAiRiskBadge',
+        summary: 'peAiSummary', threats: 'peAiThreats',
+        recs: 'peAiRecs', vectors: 'peAiVectors',
     });
+
+    listEl.innerHTML = '';
+    vulns.forEach(cve => listEl.appendChild(_createCVEItem(cve)));
 }
 
-// ============================================================
-// CODEBERT DEEP BEHAVIOR ANALYSIS
-// ============================================================
+// ── Package results renderer ──────────────────────────────────────────────────
+function _renderPackageResults(data) {
+    const ecosystem = data.ecosystem || '';
+    const total     = data.total_packages || 0;
+    const unique    = data.total_unique_cves || 0;
 
-const CODEBERT_SEVERITY_COLORS = {
-    CRITICAL: '#dc2626',
-    HIGH:     '#f97316',
-    MEDIUM:   '#eab308',
-    LOW:      '#22c55e',
-    MINIMAL:  '#9ca3af',
-};
-
-const CONFIDENCE_COLORS = {
-    high:   '#10b981',
-    medium: '#f59e0b',
-    low:    '#f97316',
-    none:   '#9ca3af',
-};
-
-function renderCodeBERTAnalysis(cb, profileText) {
-    const card = document.getElementById('codebertCard');
-    const secbertCard = document.getElementById('secbertProfileCard');
-    if (!card) return;
-
-    // ── SecBERT profile text ──────────────────────────────────────
-    if (profileText && secbertCard) {
-        document.getElementById('secbertProfileText').textContent = profileText;
-        secbertCard.style.display = 'block';
-    } else if (secbertCard) {
-        secbertCard.style.display = 'none';
-    }
-
-    if (!cb || !cb.available) {
-        card.style.display = 'none';
-        return;
-    }
-
-    card.style.display = 'block';
-
-    // ── Score bar ─────────────────────────────────────────────────
-    const score = cb.codebert_score || 0;
-    const pct = Math.round(score * 100);
-    const barColor = score >= 0.75 ? '#dc2626'
-                   : score >= 0.55 ? '#f97316'
-                   : score >= 0.35 ? '#eab308'
-                   : score >= 0.15 ? '#22c55e'
-                   : '#9ca3af';
-
-    const bar = document.getElementById('codebertBar');
-    if (bar) {
-        bar.style.width = `${pct}%`;
-        bar.style.background = barColor;
-    }
-    const scoreVal = document.getElementById('codebertScoreValue');
-    if (scoreVal) scoreVal.textContent = score.toFixed(3);
-
-    const confEl = document.getElementById('codebertConfidence');
-    if (confEl) {
-        const conf = cb.confidence || 'none';
-        confEl.textContent = `Confidence: ${conf.toUpperCase()}`;
-        confEl.style.color = CONFIDENCE_COLORS[conf] || '#9ca3af';
-    }
-
-    // ── Behavior summary ──────────────────────────────────────────
-    const sumEl = document.getElementById('codebertSummary');
-    if (sumEl) sumEl.textContent = cb.behavior_summary || '';
-
-    // ── Detected patterns ─────────────────────────────────────────
-    const patternsEl = document.getElementById('codebertPatterns');
-    if (!patternsEl) return;
-
-    const detected = cb.detected_patterns || [];
-    const allScores = cb.all_scores || [];
-
-    if (detected.length === 0 && allScores.length === 0) {
-        patternsEl.innerHTML = '<p style="color:#10b981; padding:8px 0;"><i class="fas fa-check-circle"></i> No malware behavior patterns detected.</p>';
-        return;
-    }
-
-    // Detected patterns (above threshold)
-    let html = '';
-    if (detected.length > 0) {
-        html += `<div class="codebert-section-title">
-            <i class="fas fa-exclamation-triangle" style="color:#ef4444"></i>
-            Detected Behavior Patterns (similarity ≥ ${0.60})
+    // Summary banner
+    const summaryEl = document.getElementById('pkgSummaryHeader');
+    summaryEl.innerHTML = `
+        <div class="pkg-summary">
+            <div class="pkg-eco-badge eco-${ecosystem.toLowerCase()}">${_esc(ecosystem.toUpperCase())}</div>
+            <div class="pkg-summary-stats">
+                <span><i class="fas fa-box-open"></i> <strong>${total}</strong> packages</span>
+                <span><i class="fas fa-bug"></i> <strong>${unique}</strong> unique CVEs</span>
+                <span><i class="fas fa-file"></i> ${_esc(data.filename || '')}</span>
+            </div>
         </div>`;
-        html += '<div class="codebert-patterns-grid">';
-        detected.forEach(p => {
-            const color = CODEBERT_SEVERITY_COLORS[p.severity] || '#9ca3af';
-            const simPct = Math.round(p.similarity * 100);
-            html += `
-            <div class="codebert-pattern-card detected">
-                <div class="pattern-header">
-                    <span class="pattern-name">${escapeHtml(p.pattern)}</span>
-                    <span class="pattern-severity-badge" style="background:${color}">${escapeHtml(p.severity)}</span>
-                    <span class="pattern-mitre">MITRE ${escapeHtml(p.mitre || '')}</span>
-                </div>
-                <div class="pattern-sim-bar-wrap">
-                    <div class="pattern-sim-bar" style="width:${simPct}%; background:${color}"></div>
-                    <span class="pattern-sim-val">${p.similarity.toFixed(3)}</span>
-                </div>
-                <p class="pattern-desc">${escapeHtml(p.description)}</p>
-            </div>`;
-        });
-        html += '</div>';
-    }
 
-    // Top-5 all scores (collapsible)
-    if (allScores.length > 0) {
-        html += `<details class="codebert-all-scores">
-            <summary>All Pattern Similarity Scores (top ${Math.min(allScores.length, 10)})</summary>
-            <div class="all-scores-table-wrap">
-            <table class="all-scores-table">
-                <thead><tr><th>Pattern</th><th>Severity</th><th>MITRE</th><th>Similarity</th></tr></thead>
-                <tbody>`;
-        allScores.forEach(p => {
-            const color = CODEBERT_SEVERITY_COLORS[p.severity] || '#9ca3af';
-            const isDetected = p.similarity >= 0.60;
-            html += `<tr class="${isDetected ? 'score-row-detected' : ''}">
-                <td>${escapeHtml(p.pattern)}</td>
-                <td><span style="color:${color};font-weight:600">${escapeHtml(p.severity)}</span></td>
-                <td><code>${escapeHtml(p.mitre || '')}</code></td>
-                <td>
-                    <span style="color:${color};font-weight:700">${p.similarity.toFixed(4)}</span>
-                    ${isDetected ? ' <span class="detected-tick">✓</span>' : ''}
-                </td>
-            </tr>`;
-        });
-        html += '</tbody></table></div></details>';
-    }
+    _renderAiPanel(data.ai_analysis, {
+        panel: 'pkgAiPanel', badge: 'pkgAiRiskBadge',
+        summary: 'pkgAiSummary', threats: 'pkgAiThreats',
+        recs: 'pkgAiRecs', vectors: 'pkgAiVectors',
+    });
 
-    patternsEl.innerHTML = html;
+    const listEl = document.getElementById('pkgPackagesList');
+    listEl.innerHTML = '';
+
+    const packages = data.packages || [];
+    packages.forEach(pkg => {
+        listEl.appendChild(_createPackageCard(pkg));
+    });
+
+    document.getElementById('pkgResults').style.display = 'block';
+    document.getElementById('pkgResults').scrollIntoView({ behavior: 'smooth' });
 }
 
+function _createPackageCard(pkg) {
+    const div  = document.createElement('div');
+    div.className = 'pkg-card';
 
-// ============================================================
-// CVE RELEVANCE BADGE HELPERS
-// ============================================================
+    const cves  = pkg.cves || [];
+    const stats = pkg.statistics || {};
+    const sev   = stats.by_severity || {};
+    const hasCVE = cves.length > 0;
 
-const RELEVANCE_COLORS = {
-    CRITICAL: { bg: '#fde8e8', border: '#dc2626', text: '#7f1d1d', dot: '#dc2626' },
-    HIGH:     { bg: '#fff3e6', border: '#f97316', text: '#7c2d12', dot: '#f97316' },
-    MEDIUM:   { bg: '#fefce8', border: '#eab308', text: '#713f12', dot: '#eab308' },
-    LOW:      { bg: '#f0fdf4', border: '#22c55e', text: '#14532d', dot: '#22c55e' },
-    MINIMAL:  { bg: '#f3f4f6', border: '#9ca3af', text: '#374151', dot: '#9ca3af' },
+    // Severity color for card left border
+    const maxSev = hasCVE
+        ? (sev.CRITICAL > 0 ? 'critical' : sev.HIGH > 0 ? 'high' : sev.MEDIUM > 0 ? 'medium' : 'low')
+        : 'clean';
+
+    div.classList.add(`pkg-card-${maxSev}`);
+
+    div.innerHTML = `
+        <div class="pkg-card-header">
+            <div class="pkg-name">
+                <span class="pkg-eco eco-${_esc(pkg.ecosystem)}">${_esc(pkg.ecosystem)}</span>
+                <strong>${_esc(pkg.name)}</strong>
+                ${pkg.version ? `<span class="pkg-ver">v${_esc(pkg.version)}</span>` : ''}
+            </div>
+            <div class="pkg-card-stats">
+                ${hasCVE ? `
+                    ${sev.CRITICAL ? `<span class="pkg-sev-dot critical">${sev.CRITICAL} Critical</span>` : ''}
+                    ${sev.HIGH     ? `<span class="pkg-sev-dot high">${sev.HIGH} High</span>`   : ''}
+                    ${sev.MEDIUM   ? `<span class="pkg-sev-dot medium">${sev.MEDIUM} Med</span>` : ''}
+                    <span style="color:#6b7280; font-size:12px;">${cves.length} CVE${cves.length > 1 ? 's' : ''}</span>
+                ` : '<span style="color:#10b981; font-size:13px;"><i class="fas fa-check-circle"></i> No CVEs</span>'}
+            </div>
+        </div>
+        ${pkg.cpe ? `<div class="pkg-cpe"><code>${_esc(pkg.cpe)}</code></div>` : ''}
+        ${hasCVE ? `<div class="pkg-cve-list">${cves.map(c => _createCVEItem(c).outerHTML).join('')}</div>` : ''}
+    `;
+
+    // Make CVEs clickable
+    div.querySelectorAll('.cve-item').forEach((el, i) => {
+        el.addEventListener('click', () => showCVEDetailModal(cves[i]));
+    });
+
+    return div;
+}
+
+// ── CVE item ──────────────────────────────────────────────────────────────────
+function _createCVEItem(cve) {
+    const div      = document.createElement('div');
+    const severity = (cve.severity || 'none').toLowerCase();
+    div.className  = `cve-item ${severity}`;
+
+    const shortDesc = (cve.description || 'Không có mô tả').substring(0, 240) +
+                      ((cve.description || '').length > 240 ? '...' : '');
+
+    // Unified AI severity badge
+    const aiSev = cve.ai_severity;
+    let aiBadge = '';
+    if (aiSev) {
+        const conf   = aiSev.confidence ? ` ${(aiSev.confidence * 100).toFixed(0)}%` : '';
+        const models = aiSev.models_used ? aiSev.models_used.join('+') : aiSev.source;
+        aiBadge = `<span class="badge ai-sev-badge ai-sev-${aiSev.predicted_severity.toLowerCase()}"
+            title="AI Ensemble (${_esc(models)})">
+            AI: ${_esc(aiSev.predicted_severity)}${conf}
+        </span>`;
+    }
+
+    // Unified relevance badge (only for PE analysis)
+    const rel = cve.relevance;
+    let relBadge = '';
+    if (rel && rel.method !== 'none') {
+        relBadge = `<span class="relevance-badge rel-${rel.label.toLowerCase()}"
+            title="Relevance (${_esc(rel.method)}): score ${rel.score}">
+            <span class="relevance-dot"></span>
+            Relevance: ${_esc(rel.label)}
+        </span>`;
+    }
+
+    div.innerHTML = `
+        <div class="cve-header">
+            <span class="cve-id">${_esc(cve.cve_id)}</span>
+            <div class="cve-badges">
+                <span class="badge ${severity}">${_esc(cve.severity || 'N/A')}</span>
+                <span class="badge cvss-badge">CVSS ${cve.cvss_score || 'N/A'}</span>
+                ${aiBadge}
+            </div>
+        </div>
+        ${relBadge ? `<div class="cve-relevance-row">${relBadge}</div>` : ''}
+        <p class="cve-summary">${_esc(shortDesc)}</p>
+        <div class="cve-links">
+            ${(cve.references || []).slice(0, 2).map(ref =>
+                `<a href="${_esc(ref)}" target="_blank" onclick="event.stopPropagation()">
+                    <i class="fas fa-external-link-alt"></i> Ref
+                </a>`
+            ).join(' ')}
+        </div>`;
+
+    div.style.cursor = 'pointer';
+    div.addEventListener('click', () => showCVEDetailModal(cve));
+    return div;
+}
+
+// ── AI Panel renderer ─────────────────────────────────────────────────────────
+const _AI_COLORS = {
+    CRITICAL: { bg: '#fce7f3', border: '#db2777', badge: '#db2777' },
+    HIGH:     { bg: '#fff7ed', border: '#f97316', badge: '#f97316' },
+    MEDIUM:   { bg: '#fefce8', border: '#eab308', badge: '#eab308' },
+    LOW:      { bg: '#f0fdf4', border: '#22c55e', badge: '#22c55e' },
 };
 
-function buildRelevanceBadge(relevance, label, modelShort) {
-    if (!relevance) return '';
-    const lvl = relevance.label || 'MINIMAL';
-    const score = relevance.score || 0;
-    const c = RELEVANCE_COLORS[lvl] || RELEVANCE_COLORS.MINIMAL;
-    return `<span class="relevance-badge"
-        style="background:${c.bg}; border-color:${c.border}; color:${c.text};"
-        title="${escapeHtml(label)}: ${lvl} (score=${score.toFixed(3)}) — ${escapeHtml(modelShort)}">
-        <span class="relevance-dot" style="background:${c.dot}"></span>
-        ${escapeHtml(label)}: ${lvl}
-    </span>`;
-}
+function _renderAiPanel(ai, ids) {
+    const panel = document.getElementById(ids.panel);
+    if (!panel) return;
+    if (!ai || !ai.success) { panel.style.display = 'none'; return; }
 
+    const c = _AI_COLORS[ai.overall_risk] || _AI_COLORS.MEDIUM;
+    panel.style.borderColor = c.border;
+    panel.style.background  = c.bg;
+    panel.style.display     = 'block';
 
-// Risk banner
-const RISK_COLORS = {
-    CLEAN:    { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
-    LOW:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e3a8a' },
-    MEDIUM:   { bg: '#fef3c7', border: '#f59e0b', text: '#78350f' },
-    HIGH:     { bg: '#fee2e2', border: '#ef4444', text: '#7f1d1d' },
-    CRITICAL: { bg: '#fce7f3', border: '#db2777', text: '#831843' },
-};
-
-function renderRiskBanner(risk) {
-    const level   = risk.level || 'CLEAN';
-    const score   = risk.score || 0;
-    const factors = risk.factors || [];
-    const colors  = RISK_COLORS[level] || RISK_COLORS.CLEAN;
-
-    const banner = document.getElementById('riskBanner');
-    banner.style.background   = colors.bg;
-    banner.style.borderColor  = colors.border;
-    banner.style.color        = colors.text;
-
-    document.getElementById('riskLevel').textContent = level;
-    document.getElementById('riskScore').textContent = `Risk Score: ${score} / 100`;
-
-    const factorsEl = document.getElementById('riskFactors');
-    factorsEl.innerHTML = factors.map(f => `<div class="risk-factor-item">&#8226; ${escapeHtml(f)}</div>`).join('');
-}
-
-// File info
-function renderFileInfo(data) {
-    document.getElementById('peInfoName').textContent   = data.filename || '-';
-    const fi = data.file_info || {};
-    document.getElementById('peInfoSize').textContent   = fi.size_human || '-';
-    document.getElementById('peInfoMD5').textContent    = fi.md5   || '-';
-    document.getElementById('peInfoSHA1').textContent   = fi.sha1  || '-';
-    document.getElementById('peInfoSHA256').textContent = fi.sha256 || '-';
-}
-
-// PE header
-function renderPEHeader(peInfo) {
-    const tbl = document.getElementById('peHeaderTable');
-    if (!peInfo) {
-        tbl.innerHTML = '<tr><td colspan="2" style="color:#9ca3af">Not a valid PE file or header parse failed</td></tr>';
-        return;
+    const badge = document.getElementById(ids.badge);
+    if (badge) {
+        badge.textContent      = ai.overall_risk;
+        badge.style.background = c.badge;
+        badge.style.color      = '#fff';
     }
-    const rows = [
-        ['Machine',       peInfo.machine],
-        ['Compiled',      peInfo.compile_time],
-        ['Subsystem',     peInfo.subsystem],
-        ['File Type',     peInfo.is_dll ? 'DLL' : 'EXE'],
-        ['Entry Point',   peInfo.entry_point],
-        ['Image Base',    peInfo.image_base],
-        ['Sections',      peInfo.num_sections],
-        ['TLS Callbacks', peInfo.has_tls ? 'YES (suspicious)' : 'No'],
-        ['Debug Info',    peInfo.has_debug ? 'Present' : 'Stripped'],
-    ];
-    tbl.innerHTML = rows.map(([k, v]) =>
-        `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v ?? '-'))}</td></tr>`
+
+    const s = document.getElementById(ids.summary);
+    if (s) s.textContent = ai.risk_summary || '';
+
+    const t = document.getElementById(ids.threats);
+    if (t) t.innerHTML = (ai.top_threats || []).map(x => `<li>${_esc(x)}</li>`).join('');
+
+    const r = document.getElementById(ids.recs);
+    if (r) r.innerHTML = (ai.recommendations || []).map(x => `<li>${_esc(x)}</li>`).join('');
+
+    const v = document.getElementById(ids.vectors);
+    if (v) v.innerHTML = (ai.key_attack_vectors || []).map(x =>
+        `<span class="ai-vector-tag">${_esc(x)}</span>`
     ).join('');
 }
 
-// Sections
-function renderSections(sections) {
-    const container = document.getElementById('peSectionsBody');
-    if (!sections || sections.length === 0) {
-        container.innerHTML = '<p style="color:#9ca3af;padding:10px">No sections found</p>';
-        return;
-    }
+// ── CVE Detail Modal ──────────────────────────────────────────────────────────
+function showCVEDetailModal(cve) {
+    document.getElementById('modal-cve-id').textContent      = cve.cve_id || '';
+    document.getElementById('modal-published').textContent   = (cve.published || 'N/A').substring(0, 10);
+    document.getElementById('modal-severity').textContent    = cve.severity || 'N/A';
+    document.getElementById('modal-cvss').textContent        = `${cve.cvss_score || 'N/A'} (${cve.cvss_version || 'N/A'})`;
+    document.getElementById('modal-cna').textContent         = cve.cna || 'N/A';
+    document.getElementById('modal-description').textContent = cve.description || '—';
 
-    const rows = sections.map(s => {
-        const entropyPct  = Math.min((s.entropy / 8) * 100, 100).toFixed(0);
-        const entropyColor = s.entropy > 7.0 ? '#ef4444' : s.entropy > 6.0 ? '#f59e0b' : '#10b981';
-        const flags = [
-            s.executable ? '<span class="sec-flag exec">X</span>' : '',
-            s.writable   ? '<span class="sec-flag write">W</span>' : '',
-            s.readable   ? '<span class="sec-flag read">R</span>'  : '',
-            s.high_entropy    ? '<span class="sec-flag danger">HIGH ENTROPY</span>' : '',
-            s.suspicious_name ? '<span class="sec-flag danger">ODD NAME</span>'    : '',
-        ].join('');
-        return `
-        <tr>
-            <td class="sec-name">${escapeHtml(s.name || '(none)')}</td>
-            <td>${formatBytes(s.virtual_size)}</td>
-            <td>
-                <div class="entropy-bar-wrap">
-                    <div class="entropy-bar" style="width:${entropyPct}%;background:${entropyColor}"></div>
+    // AI section
+    const aiSec  = document.getElementById('modal-ai-section');
+    const aiSev  = document.getElementById('modal-ai-severity');
+    const relSec = document.getElementById('modal-relevance-section');
+    const ctxEl  = document.getElementById('modal-ctx-reasons');
+
+    const hasAISev = cve.ai_severity;
+    const hasRel   = cve.relevance;
+
+    if (hasAISev || hasRel) {
+        aiSec.style.display = 'block';
+
+        if (hasAISev) {
+            const a = cve.ai_severity;
+            const conf = a.confidence ? ` (${(a.confidence * 100).toFixed(0)}% confidence)` : '';
+            const models = (a.models_used || [a.source]).join(' + ');
+            aiSev.innerHTML = `
+                <div class="modal-ai-row">
+                    <strong>AI Predicted Severity:</strong>
+                    <span class="badge ai-sev-badge ai-sev-${a.predicted_severity.toLowerCase()}">${_esc(a.predicted_severity)}</span>
+                    ${conf}
+                    <small style="color:#6b7280; margin-left:8px;">Models: ${_esc(models)}</small>
                 </div>
-                <span style="font-size:12px;color:${entropyColor}">${s.entropy.toFixed(2)}</span>
-            </td>
-            <td>${flags}</td>
-        </tr>`;
-    }).join('');
+                ${a.ensemble_scores ? `<div class="modal-ensemble">
+                    ${Object.entries(a.ensemble_scores).map(([s, v]) =>
+                        `<span class="ens-score sev-${s.toLowerCase()}">${s}: ${(v*100).toFixed(0)}%</span>`
+                    ).join(' ')}
+                </div>` : ''}`;
+        } else {
+            aiSev.innerHTML = '';
+        }
 
-    container.innerHTML = `
-    <table class="sections-table">
-        <thead><tr><th>Name</th><th>Virtual Size</th><th>Entropy</th><th>Flags</th></tr></thead>
-        <tbody>${rows}</tbody>
-    </table>`;
-}
-
-// Suspicious imports
-function renderImports(imports) {
-    const container = document.getElementById('peImportsBody');
-    if (!imports || !imports.suspicious || imports.suspicious.length === 0) {
-        container.innerHTML = '<p style="color:#10b981;padding:10px">No suspicious imports detected.</p>';
-        return;
+        if (hasRel) {
+            const rel = cve.relevance;
+            relSec.innerHTML = `<div class="modal-ai-row" style="margin-top:8px;">
+                <strong>Relevance to Software:</strong>
+                <span class="badge rel-badge rel-${rel.label.toLowerCase()}">${rel.label}</span>
+                <small style="color:#6b7280; margin-left:8px;">score ${rel.score} (${rel.method})</small>
+            </div>`;
+            ctxEl.innerHTML = rel.reasons && rel.reasons.length
+                ? `<div style="margin-top:8px;"><strong>Lý do:</strong><ul style="margin-top:4px; padding-left:20px;">
+                    ${rel.reasons.map(r => `<li style="margin:3px 0; color:#4b5563;">${_esc(r)}</li>`).join('')}
+                </ul></div>`
+                : '';
+        } else {
+            relSec.innerHTML = '';
+            ctxEl.innerHTML  = '';
+        }
+    } else {
+        aiSec.style.display = 'none';
     }
 
-    const byCategory = imports.by_category || {};
-    const catBlocks  = Object.entries(byCategory).map(([cat, entries]) => {
-        const riskClass = (entries[0]?.risk || 'LOW').toLowerCase();
-        const apiList   = entries.map(e =>
-            `<span class="api-badge risk-${riskClass}">${escapeHtml(e.function)}</span>`
-        ).join(' ');
-        return `
-        <div class="import-category">
-            <div class="import-cat-header">
-                <span class="import-cat-name">${escapeHtml(cat)}</span>
-                <span class="risk-badge risk-${riskClass}">${entries[0]?.risk || ''}</span>
-                <span class="import-count">${entries.length} API(s)</span>
-            </div>
-            <div class="api-list">${apiList}</div>
-        </div>`;
-    }).join('');
-
-    container.innerHTML = `
-    <p class="imports-summary">
-        Total: <strong>${imports.total_dlls} DLLs</strong>, <strong>${imports.total_functions} functions</strong>
-        &mdash; <strong style="color:#ef4444">${imports.suspicious.length} suspicious</strong>
-    </p>
-    ${catBlocks}`;
-}
-
-// Extracted strings
-function renderStrings(strings) {
-    const container = document.getElementById('peStringsBody');
-    if (!strings || Object.keys(strings).length === 0) {
-        container.innerHTML = '<p style="color:#9ca3af;padding:10px">No notable strings found.</p>';
-        return;
-    }
-
-    const blocks = Object.entries(strings).map(([cat, items]) => {
-        const itemList = items.map(s =>
-            `<div class="string-item">${escapeHtml(s)}</div>`
+    // References
+    document.getElementById('modal-references').innerHTML =
+        (cve.references || []).map(r =>
+            `<a href="${_esc(r)}" target="_blank">${_esc(r)}</a><br>`
         ).join('');
-        return `
-        <div class="string-category">
-            <div class="string-cat-header">${escapeHtml(cat)} <span class="import-count">${items.length}</span></div>
-            <div class="string-items">${itemList}</div>
-        </div>`;
-    }).join('');
 
-    container.innerHTML = blocks;
+    document.getElementById('cve-detail-modal').style.display = 'block';
 }
 
-// Export
-function exportPEJSON() {
-    if (!currentPEResults) return;
-    const blob = new Blob([JSON.stringify(currentPEResults, null, 2)], { type: 'application/json' });
+function closeModal() {
+    document.getElementById('cve-detail-modal').style.display = 'none';
+}
+window.addEventListener('click', e => {
+    const m = document.getElementById('cve-detail-modal');
+    if (e.target === m) m.style.display = 'none';
+});
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function exportCurrentJSON(type) {
+    const data = _state[type];
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a    = document.createElement('a');
     a.href     = URL.createObjectURL(blob);
-    a.download = `pe-analysis-${currentPEResults.filename || 'result'}-${Date.now()}.json`;
+    a.download = `vulnscan-${type}-${Date.now()}.json`;
     a.click();
 }
 
-// Utility helpers
-function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+function exportCSV() {
+    const data = _state.search;
+    if (!data || !data.vulnerabilities) return;
+    let csv = 'CVE ID,Severity,CVSS Score,AI Severity,AI Confidence,Description\n';
+    data.vulnerabilities.forEach(cve => {
+        const ai   = cve.ai_severity || {};
+        const desc = (cve.description || '').replace(/"/g, '""');
+        csv += `"${cve.cve_id}","${cve.severity}",${cve.cvss_score},"${ai.predicted_severity || ''}",${(ai.confidence || 0).toFixed(2)},"${desc}"\n`;
+    });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `vulnscan-${Date.now()}.csv`;
+    a.click();
 }
 
-function escapeHtml(str) {
-    return String(str)
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function showLoading()  { document.getElementById('loading').style.display = 'block'; }
+function hideLoading()  { document.getElementById('loading').style.display = 'none'; }
+function showError(msg) {
+    document.getElementById('errorMessage').textContent = msg;
+    document.getElementById('error').style.display = 'block';
+}
+function hideError()    { document.getElementById('error').style.display   = 'none'; }
+function hideResults()  { document.getElementById('results').style.display = 'none'; }
+
+function _esc(str) {
+    return String(str ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
 
-// ============================================================
-// Initialize
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('CVE-CPE Vulnerability Scanner initialized');
-    
-    // Load database stats
-    fetch('/api/stats')
-        .then(res => res.json())
-        .then(data => {
-            console.log('Database loaded:', data);
-        })
-        .catch(err => {
-            console.error('Failed to load database stats:', err);
-        });
-});
-
-function showCVEDetailModal(cve) {
-    let modal = document.getElementById('cve-detail-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'cve-detail-modal';
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <span class="close-btn" onclick="closeModal()">&times;</span>
-                <h2 id="modal-cve-id"></h2>
-                <div class="modal-meta">
-                    <p><strong>Published:</strong> <span id="modal-published"></span></p>
-                    <p><strong>CNA / Source:</strong> <span id="modal-cna"></span></p>
-                    <p><strong>Severity:</strong> <span id="modal-severity"></span></p>
-                    <p><strong>CVSS:</strong> <span id="modal-cvss"></span></p>
-                </div>
-                <!-- AI Relevance section -->
-                <div id="modal-ai-section" style="display:none; margin:16px 0;">
-                    <h3><i class="fas fa-brain"></i> AI Relevance to This File</h3>
-                    <div id="modal-ai-badges" style="margin:8px 0;"></div>
-                    <div id="modal-ctx-reasons"></div>
-                </div>
-                <h3>Description</h3>
-                <p id="modal-description"></p>
-                <h3>References</h3>
-                <div id="modal-references"></div>
-                <button class="btn btn-primary" onclick="closeModal()">Close</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-
-    document.getElementById('modal-cve-id').textContent = cve.cve_id;
-    document.getElementById('modal-published').textContent = (cve.published || 'N/A').substring(0, 10);
-    document.getElementById('modal-cna').textContent = cve.cna || 'Unknown';
-    document.getElementById('modal-severity').textContent = cve.severity;
-    document.getElementById('modal-cvss').textContent = `${cve.cvss_score} (${cve.cvss_version || 'N/A'})`;
-    document.getElementById('modal-description').textContent = cve.description || 'No description from NVD.';
-
-    // ── AI Relevance section ──────────────────────────────────────
-    const aiSection = document.getElementById('modal-ai-section');
-    const aiBadgesEl = document.getElementById('modal-ai-badges');
-    const ctxReasonsEl = document.getElementById('modal-ctx-reasons');
-
-    const hasSec = cve.secbert_relevance;
-    const hasCtx = cve.contextual_relevance;
-
-    if (hasSec || hasCtx) {
-        aiSection.style.display = 'block';
-        let badgesHtml = '';
-        if (hasSec) {
-            badgesHtml += buildRelevanceBadge(hasSec, 'SecBERT Semantic', hasSec.model || 'SecBERT');
-            badgesHtml += `<span style="margin-left:12px; color:#6b7280; font-size:13px;">
-                score: ${hasSec.score.toFixed(4)}
-            </span>`;
-        }
-        if (hasCtx) {
-            badgesHtml += '&nbsp;';
-            badgesHtml += buildRelevanceBadge(hasCtx, 'Contextual', 'rule-based');
-            badgesHtml += `<span style="margin-left:12px; color:#6b7280; font-size:13px;">
-                score: ${hasCtx.score.toFixed(3)}
-            </span>`;
-        }
-        aiBadgesEl.innerHTML = badgesHtml;
-
-        // Contextual reasons
-        if (hasCtx && hasCtx.reasons && hasCtx.reasons.length > 0) {
-            ctxReasonsEl.innerHTML = `
-                <div style="margin-top:10px;">
-                    <strong style="color:#374151;">Why this CVE is relevant:</strong>
-                    <ul style="margin-top:6px; padding-left:20px; color:#4b5563;">
-                        ${hasCtx.reasons.map(r => `<li style="margin:4px 0;">${escapeHtml(r)}</li>`).join('')}
-                    </ul>
-                </div>`;
-        } else {
-            ctxReasonsEl.innerHTML = '';
-        }
-    } else {
-        aiSection.style.display = 'none';
-    }
-
-    // References
-    const refsDiv = document.getElementById('modal-references');
-    refsDiv.innerHTML = (cve.references || []).map(ref =>
-        `<a href="${escapeHtml(ref)}" target="_blank">${escapeHtml(ref)}</a><br>`
-    ).join('');
-
-    modal.style.display = 'block';
+function _fmtBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024)       return `${n} B`;
+    if (n < 1048576)    return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1048576).toFixed(1)} MB`;
 }
-
-// Đóng modal khi click ngoài hoặc nút close
-function closeModal() {
-    const modal = document.getElementById('cve-detail-modal');
-    if (modal) modal.style.display = 'none';
-}
-
-// Đóng khi click ngoài modal
-window.addEventListener('click', (event) => {
-    const modal = document.getElementById('cve-detail-modal');
-    if (event.target === modal) {
-        closeModal();
-    }
-});
