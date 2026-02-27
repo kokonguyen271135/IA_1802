@@ -224,3 +224,101 @@ Respond with ONLY valid JSON:
         return {"success": False, "error": "Could not parse AI response"}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+# ─── 3. AI Static Behavior Analysis ─────────────────────────────────────────
+
+def ai_analyze_static_behavior(static_result: dict) -> dict:
+    """
+    Analyze PE static analysis findings using AI to produce a vulnerability
+    assessment when no CVEs are available from NVD.
+
+    Args:
+        static_result: Full output from PEStaticAnalyzer.analyze()
+
+    Returns:
+        {
+            "success": bool,
+            "overall_risk": "CRITICAL|HIGH|MEDIUM|LOW|CLEAN",
+            "vulnerability_types": [str, ...],  # potential CWE/vuln types
+            "behavioral_summary": str,           # what this binary likely does
+            "attack_techniques": [str, ...],     # MITRE ATT&CK techniques
+            "recommendations": [str, ...],
+            "cwe_suggestions": [str, ...],       # CWE IDs relevant to findings
+        }
+        or {"success": False, "error": str}
+    """
+    if not is_available():
+        return {"success": False, "error": "AI not available (missing package or API key)"}
+
+    # Extract key findings from static analysis
+    imports = static_result.get("imports", {})
+    by_category = imports.get("by_category", {})
+    suspicious_apis = imports.get("suspicious", [])
+    sections = static_result.get("sections", [])
+    strings = static_result.get("strings", {})
+    components = static_result.get("components", [])
+    risk = static_result.get("risk", {})
+
+    # Build concise findings summary for the prompt
+    high_entropy_sections = [s["name"] for s in sections if s.get("high_entropy")]
+    detected_categories = list(by_category.keys())
+    sample_apis = [a["function"] for a in suspicious_apis[:20]]
+    embedded_urls = strings.get("URLs", [])[:5]
+    embedded_ips = strings.get("IP Addresses", [])[:5]
+    suspicious_cmds = strings.get("Suspicious Commands", [])[:5]
+
+    component_list = [
+        f"{c['name']} {c.get('version', '')} (CPE vendor: {c.get('cpe_vendor', 'unknown')})"
+        for c in components
+    ] if components else []
+
+    prompt = f"""You are a senior malware analyst and vulnerability researcher.
+Analyze the following Windows PE binary static analysis findings and assess what vulnerabilities or security risks this binary introduces.
+
+=== STATIC ANALYSIS FINDINGS ===
+
+Risk Score: {risk.get('score', 0)}/100 ({risk.get('level', 'UNKNOWN')})
+Risk Factors: {risk.get('factors', [])}
+
+Suspicious API Categories Detected: {detected_categories}
+Sample Suspicious APIs: {sample_apis}
+
+High-Entropy Sections (possible packing/encryption): {high_entropy_sections if high_entropy_sections else 'None'}
+
+Embedded Components/Libraries: {component_list if component_list else 'None detected'}
+
+Embedded URLs: {embedded_urls if embedded_urls else 'None'}
+Embedded IP Addresses: {embedded_ips if embedded_ips else 'None'}
+Suspicious Command Strings: {suspicious_cmds if suspicious_cmds else 'None'}
+
+=== TASK ===
+Based on these findings, provide:
+1. What vulnerability types (by CWE) are relevant to this binary's behavior?
+2. What malicious techniques (MITRE ATT&CK) does this binary likely implement?
+3. A behavioral summary of what this binary is likely doing.
+4. Security recommendations.
+
+Respond with ONLY valid JSON:
+{{
+  "overall_risk": "CRITICAL|HIGH|MEDIUM|LOW|CLEAN",
+  "behavioral_summary": "2-3 sentences describing what this binary likely does based on its API usage and characteristics",
+  "vulnerability_types": ["e.g. Buffer Overflow (CWE-120)", "Privilege Escalation (CWE-269)"],
+  "attack_techniques": ["e.g. T1055 - Process Injection", "T1056 - Input Capture"],
+  "cwe_suggestions": ["CWE-120", "CWE-269"],
+  "recommendations": ["Isolate and sandbox this binary", "Block network communication", "Investigate process tree"]
+}}"""
+
+    try:
+        msg = _client().messages.create(
+            model=SEVERITY_MODEL,
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = _extract_json(msg.content[0].text.strip())
+        if result:
+            result["success"] = True
+            return result
+        return {"success": False, "error": "Could not parse AI response"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}

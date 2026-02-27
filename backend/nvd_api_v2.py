@@ -145,6 +145,80 @@ class NVDAPIv2:
         
         return all_cves
     
+    def search_by_keyword(self, keyword, results_per_page=100, max_results=50):
+        """
+        Search CVEs by keyword using NVD keywordSearch parameter.
+        Used as fallback when CPE-based search returns 0 results.
+
+        Args:
+            keyword: Software name or search term
+            results_per_page: Number of results per page (max 2000)
+            max_results: Maximum total results to return
+
+        Returns:
+            List of CVE objects
+        """
+        print(f"\n[NVD Search] Keyword fallback: '{keyword}'")
+
+        all_cves = []
+        start_index = 0
+        total_results = None
+
+        while True:
+            self._rate_limit()
+
+            params = {
+                'keywordSearch': keyword,
+                'resultsPerPage': min(results_per_page, 2000),
+                'startIndex': start_index,
+            }
+
+            headers = {}
+            if self.api_key:
+                headers['apiKey'] = self.api_key
+
+            try:
+                response = requests.get(
+                    self.base_url,
+                    params=params,
+                    headers=headers,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if total_results is None:
+                    total_results = data.get('totalResults', 0)
+                    print(f"[NVD Search] [+] Keyword search found {total_results:,} CVEs")
+                    if total_results == 0:
+                        return []
+
+                vulnerabilities = data.get('vulnerabilities', [])
+                for vuln in vulnerabilities:
+                    cve_data = self._parse_cve(vuln)
+                    cve_data['search_method'] = 'keyword'
+                    all_cves.append(cve_data)
+
+                start_index += len(vulnerabilities)
+
+                if start_index >= total_results:
+                    break
+                if max_results and len(all_cves) >= max_results:
+                    all_cves = all_cves[:max_results]
+                    break
+                if len(vulnerabilities) == 0:
+                    break
+
+            except requests.exceptions.HTTPError as e:
+                print(f"\n[NVD Search] [ERROR] Keyword search HTTP error: {e}")
+                break
+            except Exception as e:
+                print(f"\n[NVD Search] [ERROR] Keyword search error: {e}")
+                break
+
+        print(f"[NVD Search] [+] Keyword search returned {len(all_cves)} CVEs")
+        return all_cves
+
     def _parse_cve(self, vuln_data):
         """Parse NVD vulnerability data - EXACT format"""
         

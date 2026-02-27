@@ -19,7 +19,7 @@ sys.path.append(str(Path(__file__).parent))
 from cpe_extractor import CPEExtractor
 from nvd_api_v2 import NVDAPIv2
 from static_analyzer import PEStaticAnalyzer
-from ai_analyzer import ai_match_cpe, ai_analyze_severity, is_available as ai_available
+from ai_analyzer import ai_match_cpe, ai_analyze_severity, ai_analyze_static_behavior, is_available as ai_available
 from severity_classifier import predict as clf_predict, is_available as clf_available
 from cpe_semantic_matcher import match_best as sem_match_best, match as sem_match, is_available as sem_available
 from contextual_scorer import score_cves, build_file_profile
@@ -330,6 +330,16 @@ def search_by_name():
         max_results = data.get('max_results', None)
 
         cves = nvd_api.search_by_cpe(cpe, max_results=max_results)
+        data_source = 'NVD API (Direct CPE Query)'
+
+        # ── Keyword search fallback when CPE returns 0 results ────────────
+        keyword_fallback_used = False
+        if not cves and software_name:
+            print(f"[Search] CPE query returned 0 results — trying keyword search for '{software_name}'")
+            cves = nvd_api.search_by_keyword(software_name, max_results=max_results or 50)
+            if cves:
+                data_source = 'NVD API (Keyword Search Fallback)'
+                keyword_fallback_used = True
 
         # Calculate statistics
         stats = calculate_statistics(cves)
@@ -370,7 +380,8 @@ def search_by_name():
             'total_cves': stats['total_cves'],
             'vulnerabilities': cves[:50],  # Return first 50 for UI
             'statistics': stats,
-            'data_source': 'NVD API (Direct CPE Query)',
+            'data_source': data_source,
+            'keyword_fallback': keyword_fallback_used,
             'note': f"Showing first 50 of {stats['total_cves']} CVEs" if stats['total_cves'] > 50 else None,
             'ai_cpe': ai_cpe_result,
             'sem_cpe': sem_cpe_result,
@@ -668,6 +679,31 @@ def pe_analyze():
                 result['vulnerabilities'] = cves[:50]
                 result['cve_statistics']  = stats
 
+                # ── CVE lookup for embedded components ───────────────────
+                component_cves = []
+                for comp in result.get('components', []):
+                    comp_vendor = comp.get('cpe_vendor', '')
+                    comp_product = comp.get('cpe_product', '')
+                    comp_version = comp.get('version', '')
+                    if comp_vendor and comp_product:
+                        comp_cpe = cpe_extractor._build_cpe(comp_vendor, comp_product, comp_version)
+                        if comp_cpe:
+                            print(f"[*] Component CVE lookup: {comp['name']} ({comp_cpe})")
+                            found = nvd_api.search_by_cpe(comp_cpe, max_results=20)
+                            for cv in found:
+                                cv['source_component'] = comp['name']
+                                cv['source_component_version'] = comp_version
+                            component_cves.extend(found)
+                            print(f"[+] Found {len(found)} CVEs for {comp['name']}")
+
+                if component_cves:
+                    # Deduplicate by CVE ID and merge with main CVE list
+                    existing_ids = {c.get('cve_id') for c in cves}
+                    new_comp_cves = [c for c in component_cves if c.get('cve_id') not in existing_ids]
+                    result['component_vulnerabilities'] = new_comp_cves[:50]
+                    result['component_cve_count'] = len(component_cves)
+                    print(f"[+] {len(new_comp_cves)} unique component CVEs added")
+
                 # ── AI Severity Context ───────────────────────────────────
                 if ai_available() and cves:
                     result['ai_analysis'] = ai_analyze_severity(
@@ -679,6 +715,14 @@ def pe_analyze():
                     )
             else:
                 print(f"[!] Could not extract CPE - skipping CVE lookup")
+
+            # ── AI Static Behavior Analysis (always run on suspicious files) ──
+            # Runs when: (a) no CVEs found, or (b) file has HIGH/CRITICAL static risk
+            static_risk_level = result.get('risk', {}).get('level', 'CLEAN')
+            no_cves_found = len(result.get('vulnerabilities', [])) == 0
+            if ai_available() and (no_cves_found or static_risk_level in ('HIGH', 'CRITICAL')):
+                print(f"[*] Running AI static behavior analysis (risk={static_risk_level}, cves={len(result.get('vulnerabilities', []))})")
+                result['ai_static_behavior'] = ai_analyze_static_behavior(result)
 
         except Exception as e:
             print(f"[!] CPE/CVE step failed: {e}")
