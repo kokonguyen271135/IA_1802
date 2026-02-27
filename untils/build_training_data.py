@@ -50,35 +50,66 @@ ROOT = Path(__file__).parent.parent
 SEARCH_KEYWORDS = [
     # Web servers & proxies
     "apache http server", "nginx", "tomcat", "iis", "lighttpd", "caddy",
+    "haproxy", "squid proxy", "varnish", "traefik",
     # Databases
     "mysql", "postgresql", "mongodb", "redis", "sqlite", "oracle database",
     "microsoft sql server", "elasticsearch", "cassandra", "mariadb",
+    "couchdb", "neo4j", "memcached", "influxdb", "clickhouse",
     # Languages & runtimes
     "python", "php", "java", "node.js", "ruby", "golang", "rust",
+    "perl", "r language", "swift", "kotlin", "scala",
     # Security libraries
     "openssl", "openssh", "gnutls", "nss", "mbedtls", "bouncycastle",
+    "libressl", "wolfssl", "cryptography library",
     # OS & kernel
     "linux kernel", "windows", "android", "ios", "macos",
+    "freebsd", "openbsd", "netbsd", "solaris", "ubuntu", "debian", "centos",
     # CMS & platforms
     "wordpress", "drupal", "joomla", "magento", "typo3",
+    "shopify", "prestashop", "opencart", "ghost cms", "concrete5",
     # Browsers
-    "chrome", "firefox", "safari", "edge",
+    "chrome", "firefox", "safari", "edge", "opera", "brave",
+    "chromium", "webkit", "v8 engine",
     # Network / infrastructure
     "cisco ios", "juniper", "palo alto", "fortinet", "f5 big-ip",
+    "sonicwall", "checkpoint", "netgear", "d-link", "zyxel",
+    "openvpn", "wireguard", "strongswan", "cisco asa",
     # Virtualisation & containers
     "vmware", "docker", "kubernetes", "virtualbox", "xen",
+    "hyper-v", "kvm", "qemu", "lxc", "containerd", "podman",
     # Frameworks & libraries
     "log4j", "spring framework", "struts", "django", "rails", "laravel",
     "curl", "libssl", "libpng", "zlib", "expat",
+    "flask", "fastapi", "express.js", "react", "angular", "vue.js",
+    "hibernate", "jackson", "gson", "yaml library",
     # Productivity & end-user apps
     "adobe acrobat", "microsoft office", "outlook", "exchange",
     "winrar", "7-zip", "zoom", "slack", "putty", "filezilla",
+    "libreoffice", "gimp", "vlc media player", "adobe reader",
+    "microsoft teams", "discord", "telegram", "signal",
     # Developer tools
     "git", "jenkins", "gitlab", "sonarqube", "ansible", "terraform",
-    # Common vulnerability patterns (description-level)
+    "github actions", "artifactory", "hashicorp vault", "grafana",
+    "prometheus", "kibana", "logstash", "apache kafka", "rabbitmq",
+    # Email & messaging
+    "postfix", "sendmail", "dovecot", "exim", "zimbra",
+    "microsoft exchange", "roundcube", "horde",
+    # IoT & embedded
+    "openwrt", "dd-wrt", "busybox", "uboot", "raspberry pi",
+    "arduino", "mqtt", "modbus",
+    # Vulnerability types (description-level) — high signal for severity
     "buffer overflow", "sql injection", "cross-site scripting",
     "remote code execution", "privilege escalation", "path traversal",
     "deserialization", "use after free", "integer overflow",
+    "null pointer dereference", "heap overflow", "stack overflow",
+    "format string", "command injection", "xxe injection",
+    "server-side request forgery", "open redirect", "csrf",
+    "insecure deserialization", "xml injection", "ldap injection",
+    "directory traversal", "race condition", "double free",
+    "type confusion", "out of bounds read", "out of bounds write",
+    "improper authentication", "improper authorization",
+    "missing authentication", "hard-coded credentials",
+    "information disclosure", "denial of service", "memory corruption",
 ]
 
 NVD_API     = "https://services.nvd.nist.gov/rest/json/cves/2.0/"

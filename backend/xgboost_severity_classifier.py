@@ -154,7 +154,14 @@ def train(force: bool = False) -> bool:
         df = df.dropna(subset=["description", "severity"])
         df = df[df["severity"].isin(LABELS)]
         df = df[df["description"].str.len() > 20]
-        logger.info("[XGBoost] Training on %d samples …", len(df))
+
+        # Deduplicate before splitting — same fix as train_severity_model.py
+        if "cve_id" in df.columns:
+            df = df.drop_duplicates(subset=["cve_id"])
+        else:
+            df = df.drop_duplicates(subset=["description"])
+
+        logger.info("[XGBoost] Training on %d unique samples …", len(df))
 
         descriptions   = df["description"].tolist()
         vector_strings = df.get("vector_string", pd.Series([""] * len(df))).fillna("").tolist()
