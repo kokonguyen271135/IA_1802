@@ -1,404 +1,411 @@
+<!-- frontend/templates/index.html -->
+
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VulnScan AI – Đánh giá Lỗ hổng Phần mềm</title>
+    <title>CVE-CPE Vulnerability Scanner</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-<div class="container">
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-shield-alt"></i>
+                    <h1>CVE-CPE Vulnerability Scanner</h1>
+                </div>
+                <p class="subtitle">Công cụ đánh giá lỗ hổng phần mềm - NVD Database</p>
+            </div>
+        </header>
 
-    <!-- ── Header ─────────────────────────────────────────────────────────── -->
-    <header class="header">
-        <div class="header-content">
-            <div class="logo">
-                <i class="fas fa-shield-virus"></i>
-                <div>
-                    <h1>VulnScan AI</h1>
-                    <p class="subtitle">Công cụ Đánh giá Lỗ hổng Phần mềm kết hợp AI &amp; Cơ sở Dữ liệu CVE</p>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="showTab('upload')">
+                    <i class="fas fa-upload"></i> Upload File
+                </button>
+                <button class="tab-btn" onclick="showTab('search')">
+                    <i class="fas fa-search"></i> Search Software
+                </button>
+                <button class="tab-btn" onclick="showTab('cpe')">
+                    <i class="fas fa-code"></i> Query CPE
+                </button>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="upload-tab" class="tab-content active">
+                <div class="upload-section">
+                    <div class="upload-box" id="uploadBox">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop File Here</h3>
+                        <p>or click to browse</p>
+                        <input type="file" id="fileInput" accept=".exe,.dll,.sys" hidden>
+                        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                    
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <h4><i class="fas fa-file"></i> Selected File</h4>
+                        <p id="fileName"></p>
+                        <button class="btn btn-success" onclick="analyzePE()">
+                            <i class="fas fa-search"></i> Scan
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PE Loading -->
+                <div class="loading" id="peLoading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Analyzing binary &amp; querying CVE database...</p>
+                </div>
+
+                <!-- PE Error -->
+                <div class="error" id="peError" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p id="peErrorMessage"></p>
+                </div>
+
+                <!-- PE Results -->
+                <div id="peResults" style="display: none;">
+
+                    <!-- Risk Banner -->
+                    <div class="risk-banner" id="riskBanner">
+                        <div class="risk-icon"><i class="fas fa-shield-alt"></i></div>
+                        <div class="risk-info">
+                            <div class="risk-level" id="riskLevel">CLEAN</div>
+                            <div class="risk-score" id="riskScore">Score: 0 / 100</div>
+                        </div>
+                        <div class="risk-factors" id="riskFactors"></div>
+                    </div>
+
+                    <!-- Info Cards -->
+                    <div class="pe-info-grid">
+                        <!-- File Info -->
+                        <div class="pe-card">
+                            <h4><i class="fas fa-file-alt"></i> File Information</h4>
+                            <table class="pe-table">
+                                <tr><td>Filename</td><td id="peInfoName">-</td></tr>
+                                <tr><td>Size</td><td id="peInfoSize">-</td></tr>
+                                <tr><td>MD5</td><td id="peInfoMD5" class="hash-cell">-</td></tr>
+                                <tr><td>SHA1</td><td id="peInfoSHA1" class="hash-cell">-</td></tr>
+                                <tr><td>SHA256</td><td id="peInfoSHA256" class="hash-cell">-</td></tr>
+                            </table>
+                        </div>
+                        <!-- PE Header -->
+                        <div class="pe-card">
+                            <h4><i class="fas fa-cog"></i> PE Header</h4>
+                            <table class="pe-table" id="peHeaderTable">
+                                <tr><td colspan="2" style="color:#9ca3af">Not a PE file or header unavailable</td></tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- CodeBERT Deep Behavior Analysis -->
+                    <div class="pe-card pe-card-full" id="codebertCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-brain"></i> CodeBERT Deep Behavior Analysis
+                            <span class="ai-powered-tag" style="margin-left:10px;">microsoft/codebert-base</span>
+                        </h4>
+
+                        <!-- Score bar -->
+                        <div class="codebert-score-row" id="codebertScoreRow">
+                            <div class="codebert-score-label">Maliciousness Score</div>
+                            <div class="codebert-bar-wrap">
+                                <div class="codebert-bar" id="codebertBar"></div>
+                            </div>
+                            <div class="codebert-score-value" id="codebertScoreValue">0.00</div>
+                            <div class="codebert-confidence" id="codebertConfidence"></div>
+                        </div>
+
+                        <!-- Behavior summary -->
+                        <p class="codebert-summary" id="codebertSummary"></p>
+
+                        <!-- Detected patterns -->
+                        <div id="codebertPatterns"></div>
+                    </div>
+
+                    <!-- SecBERT Behavior Profile -->
+                    <div class="pe-card pe-card-full" id="secbertProfileCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-project-diagram"></i> SecBERT Behavior Profile
+                            <span class="ai-powered-tag" style="margin-left:10px;">jackaduma/SecBERT</span>
+                        </h4>
+                        <p class="secbert-profile-text" id="secbertProfileText"></p>
+                        <small style="color:#9ca3af;">
+                            This natural-language profile is embedded by SecBERT and compared
+                            against CVE descriptions to compute semantic relevance scores.
+                        </small>
+                    </div>
+
+                    <!-- Embedded Components (vulnerability-focused) -->
+                    <div class="pe-card pe-card-full" id="componentsCard" style="display:none;">
+                        <h4><i class="fas fa-puzzle-piece"></i> Detected Embedded Components
+                            <span style="font-size:12px; font-weight:400; color:#6b7280; margin-left:8px;">
+                                version strings detected inside binary
+                            </span>
+                        </h4>
+                        <div id="componentsBody"></div>
+                    </div>
+
+                    <!-- Sections -->
+                    <div class="pe-card pe-card-full">
+                        <h4><i class="fas fa-layer-group"></i> Sections</h4>
+                        <div id="peSectionsBody"></div>
+                    </div>
+
+                    <!-- Suspicious Imports -->
+                    <div class="pe-card pe-card-full" id="peImportsCard">
+                        <h4><i class="fas fa-exclamation-circle"></i> Suspicious Imports</h4>
+                        <div id="peImportsBody"></div>
+                    </div>
+
+                    <!-- Extracted Strings -->
+                    <div class="pe-card pe-card-full" id="peStringsCard">
+                        <h4><i class="fas fa-font"></i> Extracted Strings</h4>
+                        <div id="peStringsBody"></div>
+                    </div>
+
+                    <!-- CVE Vulnerabilities -->
+                    <div class="pe-card pe-card-full" id="peCVECard">
+                        <h4><i class="fas fa-bug"></i> CVE Vulnerabilities
+                            <span id="peCPEBadge" style="display:none; font-weight:400; font-size:13px; margin-left:10px;
+                                  background:#f3f4f6; padding:3px 10px; border-radius:6px; font-family:monospace;"></span>
+                        </h4>
+
+                        <!-- CPE info -->
+                        <div id="peCPEInfo" style="display:none; margin-bottom:16px;">
+                            <div class="cpe-display">
+                                <strong>CPE:</strong>
+                                <code id="peCPEString"></code>
+                            </div>
+                            <small id="peCPEMeta" style="color:#6b7280; margin-top:4px; display:block;"></small>
+                        </div>
+
+                        <!-- CVE stats -->
+                        <div class="stats-grid" id="peCVEStats" style="display:none; margin-bottom:20px;">
+                            <div class="stat-card">
+                                <i class="fas fa-bug"></i>
+                                <h3 id="peCVETotal">0</h3><p>Total CVEs</p>
+                            </div>
+                            <div class="stat-card critical">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h3 id="peCVECritical">0</h3><p>Critical</p>
+                            </div>
+                            <div class="stat-card high">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <h3 id="peCVEHigh">0</h3><p>High</p>
+                            </div>
+                            <div class="stat-card medium">
+                                <i class="fas fa-minus-circle"></i>
+                                <h3 id="peCVEMedium">0</h3><p>Medium</p>
+                            </div>
+                            <div class="stat-card low">
+                                <i class="fas fa-check-circle"></i>
+                                <h3 id="peCVELow">0</h3><p>Low</p>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-chart-line"></i>
+                                <h3 id="peCVEAvg">0</h3><p>Avg CVSS</p>
+                            </div>
+                        </div>
+
+                        <!-- AI Analysis (PE tab) -->
+                        <div id="peAiPanel" style="display:none;" class="ai-panel">
+                            <div class="ai-panel-header">
+                                <i class="fas fa-robot"></i>
+                                <span>AI Risk Assessment</span>
+                                <span id="peAiOverallRiskBadge" class="ai-risk-badge"></span>
+                                <span class="ai-powered-tag">Powered by Claude</span>
+                            </div>
+                            <p id="peAiRiskSummary" class="ai-risk-summary"></p>
+                            <div class="ai-columns">
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-bolt"></i> Top Threats</h4>
+                                    <ul id="peAiTopThreats" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-wrench"></i> Recommendations</h4>
+                                    <ul id="peAiRecommendations" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-network-wired"></i> Attack Vectors</h4>
+                                    <div id="peAiAttackVectors" class="ai-vectors"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CVE list -->
+                        <div id="peCVEList">
+                            <p style="color:#9ca3af; padding:10px;">
+                                CVE data will appear here after analysis.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Export -->
+                    <div class="export-section">
+                        <button class="btn btn-secondary" onclick="exportPEJSON()">
+                            <i class="fas fa-download"></i> Export JSON
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div class="header-badges">
-                <span class="hdr-badge"><i class="fas fa-database"></i> NVD CVE</span>
-                <span class="hdr-badge ai"><i class="fas fa-robot"></i> AI Powered</span>
+
+            <!-- Search Tab -->
+            <div id="search-tab" class="tab-content">
+                <div class="search-section">
+                    <div class="search-form">
+                        <div class="form-group">
+                            <label><i class="fas fa-laptop-code"></i> Software Name *</label>
+                            <input type="text" id="softwareName" placeholder="e.g., WinRAR, Apache, OpenSSL" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-tag"></i> Version (Optional)</label>
+                            <input type="text" id="softwareVersion" placeholder="e.g., 6.0, 2.4.49">
+                        </div>
+                        <button class="btn btn-primary" onclick="searchSoftware()">
+                            <i class="fas fa-search"></i> Search Vulnerabilities
+                        </button>
+                    </div>
+                    
+                    <div class="search-examples">
+                        <h4>Quick Examples:</h4>
+                        <button class="btn-example" onclick="setExample('WinRAR', '6.0')">WinRAR 6.0</button>
+                        <button class="btn-example" onclick="setExample('Apache HTTP Server', '2.4.49')">Apache 2.4.49</button>
+                        <button class="btn-example" onclick="setExample('OpenSSL', '1.0.1')">OpenSSL 1.0.1</button>
+                        <button class="btn-example" onclick="setExample('MySQL', '5.7.20')">MySQL 5.7.20</button>
+                    </div>
+                </div>
             </div>
-        </div>
-    </header>
 
-    <!-- ── Main ───────────────────────────────────────────────────────────── -->
-    <main class="main-content">
-
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="binary" onclick="showTab('binary', this)">
-                <i class="fas fa-microchip"></i> Binary File
-            </button>
-            <button class="tab-btn" data-tab="packages" onclick="showTab('packages', this)">
-                <i class="fas fa-box-open"></i> Package File
-            </button>
-            <button class="tab-btn" data-tab="search" onclick="showTab('search', this)">
-                <i class="fas fa-search"></i> Tìm theo tên
-            </button>
-            <button class="tab-btn" data-tab="cpe" onclick="showTab('cpe', this)">
-                <i class="fas fa-code"></i> Query CPE
-            </button>
-        </div>
-
-        <!-- ── Tab: Binary File ──────────────────────────────────────────── -->
-        <div id="binary-tab" class="tab-content active">
-            <div class="upload-section">
-                <div class="upload-box" id="binaryUploadBox">
-                    <i class="fas fa-microchip upload-icon"></i>
-                    <h3>Kéo & thả file nhị phân</h3>
-                    <p>hoặc nhấn để chọn file</p>
-                    <p class="upload-hint">.exe &bull; .dll &bull; .sys &bull; .ocx</p>
-                    <input type="file" id="binaryFileInput" accept=".exe,.dll,.sys,.ocx,.drv" hidden>
-                    <button class="btn btn-primary" onclick="document.getElementById('binaryFileInput').click()">
-                        <i class="fas fa-folder-open"></i> Chọn file
+            <!-- CPE Query Tab -->
+            <div id="cpe-tab" class="tab-content">
+                <div class="cpe-section">
+                    <div class="form-group">
+                        <label><i class="fas fa-code"></i> CPE String</label>
+                        <input type="text" id="cpeString" placeholder="cpe:2.3:a:rarlab:winrar:-:*:*:*:*:*:*:*">
+                        <small>Format: cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*</small>
+                    </div>
+                    <button class="btn btn-primary" onclick="queryCPE()">
+                        <i class="fas fa-search"></i> Query CVEs
                     </button>
                 </div>
-                <div class="file-info" id="binaryFileInfo" style="display:none;">
-                    <p id="binaryFileName"></p>
-                    <button class="btn btn-success" onclick="analyzeFile('binary')">
-                        <i class="fas fa-search"></i> Phân tích
-                    </button>
-                </div>
             </div>
 
-            <div class="loading" id="binaryLoading" style="display:none;">
+            <!-- Loading -->
+            <div class="loading" id="loading" style="display: none;">
                 <div class="spinner"></div>
-                <p>Đang phân tích binary &amp; truy vấn CVE database...</p>
-            </div>
-            <div class="error" id="binaryError" style="display:none;">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p id="binaryErrorMsg"></p>
+                <p>Analyzing...</p>
             </div>
 
-            <!-- PE Results -->
-            <div id="binaryResults" style="display:none;">
-
-                <!-- Risk banner -->
-                <div class="risk-banner" id="riskBanner">
-                    <div class="risk-icon"><i class="fas fa-shield-alt"></i></div>
-                    <div class="risk-info">
-                        <div class="risk-level" id="riskLevel">CLEAN</div>
-                        <div class="risk-score" id="riskScore">Score: 0 / 100</div>
-                    </div>
-                    <div class="risk-factors" id="riskFactors"></div>
-                </div>
-
-                <!-- Info cards row -->
-                <div class="pe-info-grid">
-                    <div class="pe-card">
-                        <h4><i class="fas fa-file-alt"></i> Thông tin file</h4>
-                        <table class="pe-table">
-                            <tr><td>Filename</td><td id="peInfoName">-</td></tr>
-                            <tr><td>Size</td><td id="peInfoSize">-</td></tr>
-                            <tr><td>MD5</td><td id="peInfoMD5" class="hash-cell">-</td></tr>
-                            <tr><td>SHA256</td><td id="peInfoSHA256" class="hash-cell">-</td></tr>
-                        </table>
-                    </div>
-                    <div class="pe-card">
-                        <h4><i class="fas fa-cog"></i> PE Header</h4>
-                        <table class="pe-table" id="peHeaderTable">
-                            <tr><td colspan="2" style="color:#9ca3af">—</td></tr>
-                        </table>
+            <!-- Results -->
+            <div class="results" id="results" style="display: none;">
+                <!-- Software Info -->
+                <div class="result-header">
+                    <h2><i class="fas fa-info-circle"></i> Scan Results</h2>
+                    <div class="cpe-display">
+                        <strong>CPE:</strong> <code id="resultCPE"></code>
                     </div>
                 </div>
 
-                <!-- Embedded components -->
-                <div class="pe-card pe-card-full" id="componentsCard" style="display:none;">
-                    <h4><i class="fas fa-puzzle-piece"></i> Embedded Components
-                        <span class="card-hint">thư viện nhúng phát hiện trong binary</span>
-                    </h4>
-                    <div id="componentsBody"></div>
-                </div>
-
-                <!-- Sections -->
-                <div class="pe-card pe-card-full">
-                    <h4><i class="fas fa-layer-group"></i> Sections</h4>
-                    <div id="peSectionsBody"></div>
-                </div>
-
-                <!-- Suspicious Imports -->
-                <div class="pe-card pe-card-full">
-                    <h4><i class="fas fa-exclamation-circle"></i> Suspicious API Imports</h4>
-                    <div id="peImportsBody"></div>
-                </div>
-
-                <!-- Extracted Strings -->
-                <div class="pe-card pe-card-full">
-                    <h4><i class="fas fa-font"></i> Extracted Strings</h4>
-                    <div id="peStringsBody"></div>
-                </div>
-
-                <!-- CVE section -->
-                <div class="pe-card pe-card-full" id="peCVECard">
-                    <h4><i class="fas fa-bug"></i> CVE Vulnerabilities
-                        <code id="peCPEBadge" style="display:none; margin-left:8px; font-size:12px; background:#f3f4f6; padding:2px 8px; border-radius:4px;"></code>
-                    </h4>
-
-                    <div id="peCPEInfo" style="display:none; margin-bottom:16px;">
-                        <div class="cpe-display">
-                            <strong>CPE:</strong> <code id="peCPEString"></code>
-                        </div>
-                        <small id="peCPEMeta" style="color:#6b7280; display:block; margin-top:4px;"></small>
+                <!-- Statistics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <i class="fas fa-bug"></i>
+                        <h3 id="statTotal">0</h3>
+                        <p>Total CVEs</p>
                     </div>
-
-                    <div class="stats-grid" id="peCVEStats" style="display:none; margin-bottom:20px;">
-                        <div class="stat-card"><i class="fas fa-bug"></i><h3 id="peCVETotal">0</h3><p>Total</p></div>
-                        <div class="stat-card critical"><i class="fas fa-exclamation-triangle"></i><h3 id="peCVECritical">0</h3><p>Critical</p></div>
-                        <div class="stat-card high"><i class="fas fa-exclamation-circle"></i><h3 id="peCVEHigh">0</h3><p>High</p></div>
-                        <div class="stat-card medium"><i class="fas fa-minus-circle"></i><h3 id="peCVEMedium">0</h3><p>Medium</p></div>
-                        <div class="stat-card low"><i class="fas fa-check-circle"></i><h3 id="peCVELow">0</h3><p>Low</p></div>
-                        <div class="stat-card"><i class="fas fa-chart-line"></i><h3 id="peCVEAvg">0</h3><p>Avg CVSS</p></div>
+                    <div class="stat-card critical">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3 id="statCritical">0</h3>
+                        <p>Critical</p>
                     </div>
-
-                    <!-- AI Analysis (PE tab) -->
-                    <div id="peAiPanel" class="ai-panel" style="display:none;">
-                        <div class="ai-panel-header">
-                            <i class="fas fa-robot"></i>
-                            <span>AI Risk Assessment</span>
-                            <span id="peAiRiskBadge" class="ai-risk-badge"></span>
-                            <span class="ai-powered-tag">Claude AI</span>
-                        </div>
-                        <p id="peAiSummary" class="ai-risk-summary"></p>
-                        <div class="ai-columns">
-                            <div class="ai-col"><h4><i class="fas fa-bolt"></i> Top Threats</h4><ul id="peAiThreats" class="ai-list"></ul></div>
-                            <div class="ai-col"><h4><i class="fas fa-wrench"></i> Khuyến nghị</h4><ul id="peAiRecs" class="ai-list"></ul></div>
-                            <div class="ai-col"><h4><i class="fas fa-network-wired"></i> Attack Vectors</h4><div id="peAiVectors" class="ai-vectors"></div></div>
-                        </div>
+                    <div class="stat-card high">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <h3 id="statHigh">0</h3>
+                        <p>High</p>
                     </div>
-
-                    <div id="peCVEList">
-                        <p style="color:#9ca3af; padding:10px;">Dữ liệu CVE sẽ hiển thị sau khi phân tích.</p>
+                    <div class="stat-card medium">
+                        <i class="fas fa-minus-circle"></i>
+                        <h3 id="statMedium">0</h3>
+                        <p>Medium</p>
+                    </div>
+                    <div class="stat-card low">
+                        <i class="fas fa-check-circle"></i>
+                        <h3 id="statLow">0</h3>
+                        <p>Low</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-chart-line"></i>
+                        <h3 id="statAvgCVSS">0</h3>
+                        <p>Avg CVSS</p>
                     </div>
                 </div>
 
-                <div class="export-section">
-                    <button class="btn btn-secondary" onclick="exportCurrentJSON('binary')">
-                        <i class="fas fa-download"></i> Xuất JSON
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Tab: Package File ─────────────────────────────────────────── -->
-        <div id="packages-tab" class="tab-content">
-            <div class="upload-section">
-                <div class="upload-box" id="pkgUploadBox">
-                    <i class="fas fa-box-open upload-icon"></i>
-                    <h3>Kéo & thả file khai báo phụ thuộc</h3>
-                    <p>hoặc nhấn để chọn file</p>
-                    <input type="file" id="pkgFileInput" hidden>
-                    <button class="btn btn-primary" onclick="document.getElementById('pkgFileInput').click()">
-                        <i class="fas fa-folder-open"></i> Chọn file
-                    </button>
-                </div>
-                <div class="pkg-formats">
-                    <span class="fmt-badge python">Python</span>
-                    <code>requirements.txt, Pipfile</code>
-                    <span class="fmt-badge npm">Node</span>
-                    <code>package.json</code>
-                    <span class="fmt-badge java">Java</span>
-                    <code>pom.xml, build.gradle</code>
-                    <span class="fmt-badge php">PHP</span>
-                    <code>composer.json</code>
-                    <span class="fmt-badge ruby">Ruby</span>
-                    <code>Gemfile</code>
-                    <span class="fmt-badge go">Go</span>
-                    <code>go.mod</code>
-                </div>
-                <div class="file-info" id="pkgFileInfo" style="display:none;">
-                    <p id="pkgFileName"></p>
-                    <button class="btn btn-success" onclick="analyzeFile('packages')">
-                        <i class="fas fa-search"></i> Kiểm tra lỗ hổng
-                    </button>
-                </div>
-            </div>
-
-            <div class="loading" id="pkgLoading" style="display:none;">
-                <div class="spinner"></div>
-                <p>Đang phân tích dependencies &amp; truy vấn CVE database...</p>
-            </div>
-            <div class="error" id="pkgError" style="display:none;">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p id="pkgErrorMsg"></p>
-            </div>
-
-            <!-- Package Results -->
-            <div id="pkgResults" style="display:none;">
-
-                <!-- Summary header -->
-                <div class="pkg-summary-header" id="pkgSummaryHeader"></div>
-
-                <!-- AI Risk Assessment -->
-                <div id="pkgAiPanel" class="ai-panel" style="display:none;">
+                <!-- AI Analysis Panel -->
+                <div id="aiAnalysisPanel" style="display:none;" class="ai-panel">
                     <div class="ai-panel-header">
                         <i class="fas fa-robot"></i>
                         <span>AI Risk Assessment</span>
-                        <span id="pkgAiRiskBadge" class="ai-risk-badge"></span>
-                        <span class="ai-powered-tag">Claude AI</span>
+                        <span id="aiOverallRiskBadge" class="ai-risk-badge"></span>
+                        <span class="ai-powered-tag">Powered by Claude</span>
                     </div>
-                    <p id="pkgAiSummary" class="ai-risk-summary"></p>
+                    <p id="aiRiskSummary" class="ai-risk-summary"></p>
                     <div class="ai-columns">
-                        <div class="ai-col"><h4><i class="fas fa-bolt"></i> Top Threats</h4><ul id="pkgAiThreats" class="ai-list"></ul></div>
-                        <div class="ai-col"><h4><i class="fas fa-wrench"></i> Khuyến nghị</h4><ul id="pkgAiRecs" class="ai-list"></ul></div>
-                        <div class="ai-col"><h4><i class="fas fa-network-wired"></i> Attack Vectors</h4><div id="pkgAiVectors" class="ai-vectors"></div></div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-bolt"></i> Top Threats</h4>
+                            <ul id="aiTopThreats" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-wrench"></i> Recommendations</h4>
+                            <ul id="aiRecommendations" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-network-wired"></i> Attack Vectors</h4>
+                            <div id="aiAttackVectors" class="ai-vectors"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Per-package CVE list -->
-                <div id="pkgPackagesList"></div>
+                <!-- Vulnerabilities List -->
+                <div class="vulnerabilities">
+                    <h3><i class="fas fa-list"></i> Vulnerabilities Found</h3>
+                    <div id="cveList"></div>
+                </div>
 
+                <!-- Export Options -->
                 <div class="export-section">
-                    <button class="btn btn-secondary" onclick="exportCurrentJSON('packages')">
-                        <i class="fas fa-download"></i> Xuất JSON
+                    <button class="btn btn-secondary" onclick="exportJSON()">
+                        <i class="fas fa-download"></i> Export JSON
+                    </button>
+                    <button class="btn btn-secondary" onclick="exportCSV()">
+                        <i class="fas fa-file-csv"></i> Export CSV
                     </button>
                 </div>
             </div>
-        </div>
 
-        <!-- ── Tab: Search ───────────────────────────────────────────────── -->
-        <div id="search-tab" class="tab-content">
-            <div class="search-section">
-                <div class="search-form">
-                    <div class="form-group">
-                        <label><i class="fas fa-laptop-code"></i> Tên phần mềm *</label>
-                        <input type="text" id="softwareName" placeholder="vd: Apache HTTP Server, OpenSSL, Django">
-                    </div>
-                    <div class="form-group">
-                        <label><i class="fas fa-tag"></i> Phiên bản (tùy chọn)</label>
-                        <input type="text" id="softwareVersion" placeholder="vd: 2.4.49, 1.0.1, 3.2.0">
-                    </div>
-                    <button class="btn btn-primary" onclick="searchSoftware()">
-                        <i class="fas fa-search"></i> Tìm lỗ hổng
-                    </button>
-                </div>
-                <div class="search-examples">
-                    <h4>Ví dụ nhanh:</h4>
-                    <button class="btn-example" onclick="setExample('Apache HTTP Server','2.4.49')">Apache 2.4.49</button>
-                    <button class="btn-example" onclick="setExample('OpenSSL','1.0.1')">OpenSSL 1.0.1</button>
-                    <button class="btn-example" onclick="setExample('Log4j','2.14.1')">Log4j 2.14.1</button>
-                    <button class="btn-example" onclick="setExample('Django','3.2.0')">Django 3.2.0</button>
-                    <button class="btn-example" onclick="setExample('WinRAR','6.0')">WinRAR 6.0</button>
-                </div>
+            <!-- Error -->
+            <div class="error" id="error" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p id="errorMessage"></p>
             </div>
-        </div>
+        </main>
 
-        <!-- ── Tab: CPE Query ────────────────────────────────────────────── -->
-        <div id="cpe-tab" class="tab-content">
-            <div class="cpe-section">
-                <div class="form-group">
-                    <label><i class="fas fa-code"></i> CPE 2.3 String</label>
-                    <input type="text" id="cpeString" placeholder="cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*">
-                    <small>Format: cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*</small>
-                </div>
-                <button class="btn btn-primary" onclick="queryCPE()">
-                    <i class="fas fa-search"></i> Query CVEs
-                </button>
-                <div class="cpe-examples">
-                    <span>Ví dụ:</span>
-                    <code onclick="setCPE(this)" style="cursor:pointer;">cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*</code>
-                    <code onclick="setCPE(this)" style="cursor:pointer;">cpe:2.3:a:openssl:openssl:1.0.1:*:*:*:*:*:*:*</code>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Shared loading/error/results for search + CPE tabs ──────── -->
-        <div class="loading" id="loading" style="display:none;">
-            <div class="spinner"></div>
-            <p>Đang xử lý...</p>
-        </div>
-
-        <div id="results" style="display:none;">
-            <div class="result-header">
-                <h2><i class="fas fa-clipboard-list"></i> Kết quả đánh giá</h2>
-                <div class="cpe-display">
-                    <strong>CPE:</strong> <code id="resultCPE"></code>
-                </div>
-            </div>
-
-            <div class="stats-grid">
-                <div class="stat-card"><i class="fas fa-bug"></i><h3 id="statTotal">0</h3><p>Total CVEs</p></div>
-                <div class="stat-card critical"><i class="fas fa-exclamation-triangle"></i><h3 id="statCritical">0</h3><p>Critical</p></div>
-                <div class="stat-card high"><i class="fas fa-exclamation-circle"></i><h3 id="statHigh">0</h3><p>High</p></div>
-                <div class="stat-card medium"><i class="fas fa-minus-circle"></i><h3 id="statMedium">0</h3><p>Medium</p></div>
-                <div class="stat-card low"><i class="fas fa-check-circle"></i><h3 id="statLow">0</h3><p>Low</p></div>
-                <div class="stat-card"><i class="fas fa-chart-line"></i><h3 id="statAvgCVSS">0</h3><p>Avg CVSS</p></div>
-            </div>
-
-            <div id="aiAnalysisPanel" class="ai-panel" style="display:none;">
-                <div class="ai-panel-header">
-                    <i class="fas fa-robot"></i>
-                    <span>AI Risk Assessment</span>
-                    <span id="aiOverallRiskBadge" class="ai-risk-badge"></span>
-                    <span class="ai-powered-tag">Claude AI</span>
-                </div>
-                <p id="aiRiskSummary" class="ai-risk-summary"></p>
-                <div class="ai-columns">
-                    <div class="ai-col"><h4><i class="fas fa-bolt"></i> Top Threats</h4><ul id="aiTopThreats" class="ai-list"></ul></div>
-                    <div class="ai-col"><h4><i class="fas fa-wrench"></i> Khuyến nghị</h4><ul id="aiRecommendations" class="ai-list"></ul></div>
-                    <div class="ai-col"><h4><i class="fas fa-network-wired"></i> Attack Vectors</h4><div id="aiAttackVectors" class="ai-vectors"></div></div>
-                </div>
-            </div>
-
-            <div class="vulnerabilities">
-                <h3><i class="fas fa-list"></i> Danh sách CVE</h3>
-                <div id="cveList"></div>
-            </div>
-
-            <div class="export-section">
-                <button class="btn btn-secondary" onclick="exportCurrentJSON('search')">
-                    <i class="fas fa-download"></i> Xuất JSON
-                </button>
-                <button class="btn btn-secondary" onclick="exportCSV()">
-                    <i class="fas fa-file-csv"></i> Xuất CSV
-                </button>
-            </div>
-        </div>
-
-        <div class="error" id="error" style="display:none;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p id="errorMessage"></p>
-        </div>
-
-    </main>
-
-    <!-- ── Footer ─────────────────────────────────────────────────────────── -->
-    <footer class="footer">
-        <p>VulnScan AI &copy; 2026 &mdash; Đồ án tốt nghiệp FPTU</p>
-        <p>Nguồn dữ liệu: <a href="https://nvd.nist.gov" target="_blank">NVD / NIST</a></p>
-    </footer>
-</div>
-
-<!-- CVE Detail Modal -->
-<div id="cve-detail-modal" class="modal" style="display:none;">
-    <div class="modal-content">
-        <span class="close-btn" onclick="closeModal()">&times;</span>
-        <h2 id="modal-cve-id"></h2>
-        <div class="modal-meta">
-            <p><strong>Published:</strong> <span id="modal-published"></span></p>
-            <p><strong>Severity:</strong> <span id="modal-severity"></span></p>
-            <p><strong>CVSS:</strong> <span id="modal-cvss"></span></p>
-            <p><strong>CNA:</strong> <span id="modal-cna"></span></p>
-        </div>
-        <div id="modal-ai-section" style="display:none; margin:16px 0;">
-            <h3><i class="fas fa-brain"></i> AI Severity &amp; Relevance</h3>
-            <div id="modal-ai-severity"></div>
-            <div id="modal-relevance-section"></div>
-            <div id="modal-ctx-reasons"></div>
-        </div>
-        <h3>Mô tả</h3>
-        <p id="modal-description"></p>
-        <h3>References</h3>
-        <div id="modal-references"></div>
-        <button class="btn btn-primary" onclick="closeModal()">Đóng</button>
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 CVE-CPE Vulnerability Scanner | Capstone Project FPTU</p>
+            <p><a href="https://github.com/arguio/SoftwareCPE-CVEMatcher" target="_blank">
+                <i class="fab fa-github"></i> GitHub
+            </a></p>
+        </footer>
     </div>
-</div>
 
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
