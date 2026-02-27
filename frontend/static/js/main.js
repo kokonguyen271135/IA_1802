@@ -409,11 +409,12 @@ function createCVEItem(cve) {
         ${hasBadges ? `<div class="cve-relevance-row">${secbertBadge}${ctxBadge}</div>` : ''}
         <p class="cve-summary">${escapeHtml(shortDesc)}</p>
         <div class="cve-links">
-            ${(cve.references || []).map(ref =>
+            ${(cve.references || []).slice(0, 3).map(ref =>
                 `<a href="${escapeHtml(ref)}" target="_blank">
                     <i class="fas fa-external-link-alt"></i> Reference
                 </a>`
             ).join(' • ')}
+            ${(cve.references || []).length > 3 ? `<span class="ref-more">+${(cve.references || []).length - 3} more</span>` : ''}
         </div>
     `;
 
@@ -1090,9 +1091,24 @@ function showCVEDetailModal(cve) {
 
     // References
     const refsDiv = document.getElementById('modal-references');
-    refsDiv.innerHTML = (cve.references || []).map(ref =>
+    const allRefs = cve.references || [];
+    const maxShow = 5;
+    const visibleRefs = allRefs.slice(0, maxShow);
+    const hiddenRefs  = allRefs.slice(maxShow);
+    refsDiv.innerHTML = visibleRefs.map(ref =>
         `<a href="${escapeHtml(ref)}" target="_blank">${escapeHtml(ref)}</a><br>`
-    ).join('');
+    ).join('') + (hiddenRefs.length > 0 ? `
+        <div id="refs-hidden" style="display:none">${hiddenRefs.map(ref =>
+            `<a href="${escapeHtml(ref)}" target="_blank">${escapeHtml(ref)}</a><br>`
+        ).join('')}</div>
+        <a href="#" id="refs-toggle" onclick="
+            var h=document.getElementById('refs-hidden');
+            var t=document.getElementById('refs-toggle');
+            if(h.style.display==='none'){h.style.display='block';t.textContent='Show less';}
+            else{h.style.display='none';t.textContent='Show ${hiddenRefs.length} more...';}
+            return false;
+        " style="color:#4fc3f7;font-size:0.85em;">Show ${hiddenRefs.length} more...</a>
+    ` : '');
 
     modal.style.display = 'block';
 }
