@@ -231,7 +231,7 @@ def _resolve_cpe(cpe_info: dict, filename: str) -> tuple[str, str, str, str, dic
         # 1. Claude AI (highest accuracy — understands product names semantically)
         if ai_available():
             ai_cpe_result = ai_match_cpe(
-                product_name=file_meta.get('ProductName') or product or '',
+                product_name=file_meta.get('ProductName') or product or filename or '',
                 company_name=file_meta.get('CompanyName', ''),
                 filename=file_meta.get('FileName', filename),
                 version=version or '',
