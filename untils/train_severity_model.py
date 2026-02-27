@@ -66,10 +66,26 @@ def main():
     df = df[df["severity"].isin(LABELS)]
     df = df[df["description"].str.len() > 20]   # drop very short descriptions
 
-    print(f"\nLoaded {len(df):,} records")
+    print(f"\nLoaded {len(df):,} records (raw, including oversampled duplicates)")
 
-    # Class distribution
-    print("\nClass distribution:")
+    # ── Deduplicate BEFORE splitting ───────────────────────────
+    # build_training_data.py oversamples minority classes by duplicating records.
+    # If we split AFTER, duplicate samples land in both train AND test → data leakage
+    # (inflated accuracy, near-zero CV variance, recall=1.00 on minority classes).
+    # Fix: deduplicate by cve_id (or description) first, then split.
+    before = len(df)
+    if "cve_id" in df.columns:
+        df = df.drop_duplicates(subset=["cve_id"])
+    else:
+        df = df.drop_duplicates(subset=["description"])
+    removed = before - len(df)
+    if removed:
+        print(f"  Removed {removed:,} duplicate records (oversampling artifacts)")
+
+    print(f"  Unique records for training: {len(df):,}")
+
+    # Class distribution (natural, after deduplication)
+    print("\nClass distribution (natural — after dedup):")
     for label in LABELS:
         n   = (df["severity"] == label).sum()
         pct = n / len(df) * 100
@@ -118,10 +134,14 @@ def main():
     print("\nClassification Report:")
     print(report)
 
-    # Cross-validation on full dataset
-    print("Cross-validation (5-fold):")
-    cv = cross_val_score(clf, X, y, cv=5, scoring="accuracy", n_jobs=-1)
+    # Cross-validation on full deduplicated dataset
+    # Note: CV is stratified on natural (imbalanced) class distribution
+    from sklearn.model_selection import StratifiedKFold
+    print("Cross-validation (5-fold, stratified, on deduplicated data):")
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv  = cross_val_score(clf, X, y, cv=skf, scoring="accuracy", n_jobs=-1)
     print(f"  Mean accuracy: {cv.mean():.4f} ± {cv.std():.4f}")
+    print(f"  Per-fold:      {[round(s,4) for s in cv]}")
 
     # ── Save ──────────────────────────────────────────────────
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -131,10 +151,11 @@ def main():
     report_text = (
         f"CVE Severity Classifier - Training Report\n"
         f"==========================================\n"
+        f"Unique records   : {len(df):,}  (after deduplication — no data leakage)\n"
         f"Training samples : {len(X_train):,}\n"
         f"Test samples     : {len(X_test):,}\n"
         f"Test accuracy    : {acc:.4f} ({acc*100:.1f}%)\n"
-        f"CV accuracy      : {cv.mean():.4f} ± {cv.std():.4f}\n\n"
+        f"CV accuracy      : {cv.mean():.4f} ± {cv.std():.4f}  (5-fold stratified)\n\n"
         f"Model: TF-IDF (max_features=50k, ngram=(1,2)) + "
         f"LogisticRegression (C=5, class_weight=balanced)\n\n"
         f"Classification Report:\n{report}\n"

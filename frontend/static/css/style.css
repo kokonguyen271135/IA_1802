@@ -468,6 +468,12 @@ body {
     text-decoration: underline;
 }
 
+.ref-more {
+    color: #888;
+    font-size: 0.82em;
+    margin-left: 6px;
+}
+
 /* Export Section */
 .export-section {
     text-align: center;

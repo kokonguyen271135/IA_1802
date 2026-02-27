@@ -32,3 +32,12 @@ desktop.ini
 
 # Pytest cache
 .pytest_cache/
+
+# Large AI model files (too big for GitHub)
+# Recreate with: python untils/run_training_pipeline.py
+models/bert_severity/
+models/*.faiss
+models/*.pkl
+# Keep evaluation reports and metadata
+!models/*.txt
+!models/*.json
