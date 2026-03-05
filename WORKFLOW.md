@@ -1,523 +1,295 @@
-# Workflow Dự Án: Software Vulnerability Assessment Tool
-
-## Tổng Quan
-
-Đây là ứng dụng web full-stack kết hợp AI và Machine Learning để đánh giá lỗ hổng phần mềm. Hệ thống tích hợp:
-- Phân tích file PE binary (Windows executables)
-- Phân tích file khai báo package (requirements.txt, package.json, v.v.)
-- Tra cứu CVE từ NVD (National Vulnerability Database)
-- Phân loại mức độ nghiêm trọng bằng ensemble ML (TF-IDF, BERT, XGBoost)
-- CPE matching bằng Claude AI + FAISS semantic search
+# Workflow Hệ Thống: Software Vulnerability Assessment Tool
 
 ---
 
-## 1. WORKFLOW KHỞI CHẠY HỆ THỐNG
+## Kiến Trúc Tổng Quan
+
+Hệ thống có **3 loại input** khác nhau, nhưng tất cả đều đi qua **1 pipeline lõi chung**:
 
 ```
-[Khởi động]
-     │
-     ▼
-python backend/app.py
-     │
-     ├─ Khởi tạo Flask app (port 5000)
-     ├─ Load SeverityPipeline (TF-IDF + BERT + XGBoost models)
-     ├─ Load SecBERT semantic scorer
-     ├─ Load FAISS CPE index (models/cpe_index.faiss)
-     ├─ Kết nối NVD API (key từ env var NVD_API_KEY)
-     ├─ Kết nối Claude API (key từ env var ANTHROPIC_API_KEY)
-     └─ Sẵn sàng nhận request tại http://localhost:5000
-```
-
-**Yêu cầu môi trường:**
-```bash
-export ANTHROPIC_API_KEY="your-key"   # Claude AI CPE matching
-export NVD_API_KEY="your-key"          # NVD API (50 req/30s thay vì 5 req/30s)
-pip install -r requirements.txt
-python backend/app.py
-```
-
----
-
-## 2. WORKFLOW PHÂN TÍCH FILE PE BINARY
-
-```
-User upload file .exe/.dll/.sys/.ocx/.drv
-     │
-     ▼
-POST /api/analyze
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 1: STATIC ANALYSIS               │
-│  static_analyzer.py (630 dòng)                 │
-│                                                │
-│  ├─ Tính hash (MD5, SHA256)                    │
-│  ├─ Parse PE VersionInfo:                      │
-│  │     ProductName, CompanyName,               │
-│  │     FileVersion, OriginalFilename           │
-│  ├─ Phân tích PE sections (entropy)            │
-│  ├─ Phân tích DLL imports:                     │
-│  │     100+ suspicious APIs / 8 categories:   │
-│  │     - Process Injection (VirtualAlloc...)   │
-│  │     - Anti-Debugging (IsDebuggerPresent)    │
-│  │     - Network (WSASocket, connect)          │
-│  │     - Registry (RegOpenKey, RegSetValue)    │
-│  │     - Privilege Escalation                  │
-│  │     - DLL Injection                         │
-│  │     - Cryptography                          │
-│  │     - File Operations                       │
-│  ├─ Phát hiện embedded components:            │
-│  │     OpenSSL, libcurl, zlib, Node.js...     │
-│  └─ Tính Risk Score (0-100)                   │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 2: CPE EXTRACTION                │
-│  cpe_extractor.py (366 dòng)                  │
-│                                                │
-│  Thử theo thứ tự ưu tiên:                     │
-│  1. PE VersionInfo → KNOWN_PATTERNS (150+ SW) │
-│     VD: "WinRAR" → cpe:2.3:a:rarlab:winrar:* │
-│  2. Filename pattern matching                  │
-│  3. [Nếu thất bại → kích hoạt AI/FAISS]      │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 3: CPE RESOLUTION                │
-│  ai_analyzer.py + FAISS                       │
-│                                                │
-│  Nếu CPE chưa xác định rõ:                   │
-│  ├─ AI: Claude haiku (claude-haiku-4-5-20251001)│
-│  │     Input: ProductName, CompanyName,        │
-│  │            FileName, Version               │
-│  │     Output: vendor/product (confidence)    │
-│  └─ Semantic: FAISS CPE index               │
-│        (cosine similarity trên embeddings)   │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 4: NVD CVE LOOKUP                │
-│  nvd_api_v2.py (412 dòng)                     │
-│                                                │
-│  ├─ Kiểm tra local cache (data/cache/nvd/)    │
-│  ├─ Query NVD API v2 bằng CPE string          │
-│  │     https://services.nvd.nist.gov/...      │
-│  ├─ Fallback: keyword search nếu CPE rỗng     │
-│  └─ Trả về list CVE (tối đa 2000/request)     │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 5: SEVERITY CLASSIFICATION       │
-│  ai/severity_pipeline.py                      │
-│                                                │
-│  Ensemble (confidence-weighted voting):       │
-│  ├─ TF-IDF + Logistic Regression (weight 70%) │
-│  │     Accuracy: 86.83%, rất nhanh (CPU)      │
-│  ├─ Fine-tuned SecBERT (weight 100%)          │
-│  │     Accuracy: 97.94%, chậm hơn (GPU/CPU)  │
-│  ├─ XGBoost + CVSS features (weight 85%)      │
-│  │     Accuracy: 92-96%                       │
-│  └─ Output: severity + confidence + models    │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 6: RELEVANCE SCORING             │
-│  contextual_scorer.py + secbert_cve_scorer.py │
-│                                                │
-│  Phương pháp kết hợp:                         │
-│  ├─ Rule-based: CVE keywords ↔ PE capabilities│
-│  │     VD: "buffer overflow" → cần file có   │
-│  │         suspicious memory APIs             │
-│  └─ Semantic: SecBERT + CodeBERT embeddings   │
-│        CVE description ↔ PE import sequence  │
-│        Cosine similarity trong 768-dim space  │
-│        Ngưỡng: ≥0.72 CRITICAL, ≥0.55 HIGH... │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 7: BEHAVIORAL ANALYSIS           │
-│  codebert_analyzer.py (416 dòng)              │
-│                                                │
-│  ├─ Encode suspicious API sequences bằng      │
-│  │     microsoft/codebert-base                │
-│  ├─ So sánh với 15+ malware patterns:         │
-│  │     Process Hollowing, DLL Injection...    │
-│  └─ Map sang MITRE ATT&CK framework           │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-Trả về JSON kết quả:
-  - File metadata + risk score
-  - CPE đã resolve
-  - Top 50 CVEs (sorted by relevance + CVSS)
-  - AI severity predictions
-  - Behavioral analysis report
-  - MITRE ATT&CK mapping
+         ┌──────────────────────────────────────────────┐
+INPUT    │  File PE (.exe/.dll)  │  Package Manifest  │  Tìm theo tên  │
+         └──────────┬───────────┴────────┬───────────┴───────┬──────────┘
+                    │                    │                   │
+                    ▼                    ▼                   ▼
+         ┌──────────────────────────────────────────────────────────────┐
+         │                   BƯỚC 1: TRÍCH XUẤT THÔNG TIN              │
+         │  PE → PEStaticAnalyzer    Package → PackageAnalyzer         │
+         │  Lấy: ProductName,        Lấy: {name, version}              │
+         │        version, hash       từng dependency                  │
+         └──────────────────────────┬───────────────────────────────────┘
+                                    │
+                                    ▼
+         ┌──────────────────────────────────────────────────────────────┐
+         │              BƯỚC 2: _resolve_cpe()  ← DÙNG CHUNG          │
+         │                                                              │
+         │  1. CPEExtractor (rule-based, 150+ known patterns)          │
+         │       VD: "WinRAR" → cpe:2.3:a:rarlab:winrar:*             │
+         │         ↓ nếu không khớp                                    │
+         │  2. Claude AI (ai_match_cpe) — hiểu tên sản phẩm ngữ nghĩa │
+         │         ↓ nếu AI thất bại hoặc không có key                │
+         │  3. FAISS Semantic Search — cosine similarity trên CPE index│
+         └──────────────────────────┬───────────────────────────────────┘
+                                    │ CPE string: cpe:2.3:a:vendor:product:ver:*
+                                    ▼
+         ┌──────────────────────────────────────────────────────────────┐
+         │              BƯỚC 3: NVDAPIv2.search_by_cpe()  ← DÙNG CHUNG│
+         │                                                              │
+         │  ├─ Kiểm tra local cache (data/cache/nvd/)                 │
+         │  ├─ Query NVD API v2 (services.nvd.nist.gov)               │
+         │  ├─ Fallback: keyword search nếu CPE rỗng                  │
+         │  └─ Trả về list CVE (tối đa 2000 kết quả)                 │
+         └──────────────────────────┬───────────────────────────────────┘
+                                    │ List[CVE]
+                                    ▼
+         ┌──────────────────────────────────────────────────────────────┐
+         │              BƯỚC 4: _enrich_cves()  ← DÙNG CHUNG          │
+         │                                                              │
+         │  ai_enrich_severity():  Phân loại mức nghiêm trọng          │
+         │  ┌─ TF-IDF + Logistic Regression   (weight 70%, acc 86.8%) │
+         │  ├─ Fine-tuned SecBERT             (weight 100%, acc 97.9%)│
+         │  └─ XGBoost + CVSS features        (weight 85%, acc 94%)   │
+         │     → Ensemble voting → severity + confidence               │
+         │                                                              │
+         │  ai_score_relevance():  CVE nào thực sự liên quan file này? │
+         │  ┌─ Rule-based: CVE keywords ↔ PE suspicious API categories │
+         │  └─ SecBERT/CodeBERT: cosine similarity CVE desc ↔ imports  │
+         │     → relevance score 0.0–1.0 cho từng CVE                 │
+         └──────────────────────────┬───────────────────────────────────┘
+                                    │
+                                    ▼
+                          JSON response trả về client
 ```
 
 ---
 
-## 3. WORKFLOW PHÂN TÍCH PACKAGE MANIFEST
+## Chi Tiết Từng Loại Input
+
+### Input 1: File PE Binary
 
 ```
-User upload requirements.txt / package.json / pom.xml...
-     │
-     ▼
-POST /api/analyze  hoặc  POST /api/analyze-packages
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 1: DETECT ECOSYSTEM              │
-│  package_analyzer.py (463 dòng)               │
-│                                                │
-│  Hỗ trợ 7 ecosystems:                         │
-│  ├─ Python  → requirements.txt, Pipfile       │
-│  ├─ Node.js → package.json, yarn.lock         │
-│  ├─ Java   → pom.xml (Maven), build.gradle    │
-│  ├─ PHP    → composer.json                    │
-│  ├─ Ruby   → Gemfile                          │
-│  ├─ Go     → go.mod                           │
-│  └─ Rust   → Cargo.toml                       │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│          BƯỚC 2: PARSE DEPENDENCIES            │
-│                                                │
-│  Trích xuất: name + version                   │
-│  VD: Flask==2.3.0 → {name: Flask, ver: 2.3.0}│
-└────────────────────────────────────────────────┘
-     │
-     ▼
-     └─ Cho mỗi package (song song):
-          │
-          ▼
-     ┌─────────────────────────────────────────┐
-     │  CPE Resolution (giống PE binary)       │
-     │  1. Known CPE hints (Django, Flask...)  │
-     │  2. Claude AI matching                  │
-     │  3. FAISS semantic search               │
-     │  4. NVD keyword fallback               │
-     └─────────────────────────────────────────┘
-          │
-          ▼
-     ┌─────────────────────────────────────────┐
-     │  NVD CVE Lookup theo CPE               │
-     └─────────────────────────────────────────┘
-          │
-          ▼
-     ┌─────────────────────────────────────────┐
-     │  Severity Classification (Ensemble)    │
-     └─────────────────────────────────────────┘
-          │
-          ▼
-     Kết quả per-package CVEs
-     │
-     ▼
-Kết quả tổng hợp toàn bộ manifest:
-  - Per-package CVE list
-  - Severity distribution
-  - Highest risk packages
-  - Total vulnerability count
+POST /api/analyze  (file .exe / .dll / .sys / .ocx / .drv)
+         │
+         ▼
+_analyze_pe(filepath, filename)
+         │
+         ├─ pe_analyzer.analyze(filepath)          ← static_analyzer.py
+         │     • Hash: MD5, SHA256
+         │     • VersionInfo: ProductName, CompanyName, FileVersion
+         │     • Sections: entropy, tên section bất thường
+         │     • Imports: DLL + suspicious API detection
+         │     • Components: OpenSSL, libcurl, Node.js nhúng trong file
+         │     • Risk score: tổng hợp tất cả dấu hiệu nguy hiểm
+         │
+         ├─ cpe_extractor.extract_from_file(filepath)
+         │     → _resolve_cpe()  [shared - xem trên]
+         │
+         ├─ nvd_api.search_by_cpe(cpe)
+         │     → NVD query [shared - xem trên]
+         │
+         ├─ _enrich_cves(cves, software_analysis=pe_result)
+         │     → Severity + Relevance [shared - xem trên]
+         │     ↑ software_analysis truyền vào để relevance scoring
+         │       biết file này có những API/capability gì
+         │
+         └─ codebert_analyzer.analyze(pe_result)   ← codebert_analyzer.py
+               • Encode suspicious API sequence bằng CodeBERT
+               • So sánh với 15+ malware behavioral patterns
+               • Output: behavior profile + MITRE ATT&CK mapping
+```
+
+**Kết quả trả về:**
+```json
+{
+  "analysis_type": "binary",
+  "filename": "...", "hash": {...}, "risk": {"level": "HIGH", "score": 72},
+  "cpe": "cpe:2.3:a:vendor:product:version:*...",
+  "vulnerabilities": [
+    {"cve_id": "CVE-2024-...", "severity": "CRITICAL", "cvss_score": 9.8,
+     "ai_severity": {"severity": "CRITICAL", "confidence": 0.97},
+     "relevance": {"score": 0.81, "label": "CRITICAL RELEVANCE"}}
+  ],
+  "cve_statistics": {"total": 42, "critical": 5, "high": 18, ...},
+  "behavior_profile": {...},
+  "mitre_techniques": [...]
+}
 ```
 
 ---
 
-## 4. WORKFLOW TÌM KIẾM THEO TÊN PHẦN MỀM
+### Input 2: Package Manifest
 
 ```
-User nhập: Software Name + Version
-     │
-     ▼
+POST /api/analyze  (requirements.txt / package.json / pom.xml / ...)
+         │
+         ▼
+_analyze_package_manifest(filepath, filename)
+         │
+         ├─ pkg_analyzer.analyze(filepath)          ← package_analyzer.py
+         │     • Detect ecosystem: Python/Node/Maven/Gradle/PHP/Ruby/Go/Rust
+         │     • Parse dependencies: [{name, version}, ...]
+         │
+         └─ Vòng lặp: for each package in dependencies:
+               │
+               ├─ Lookup known CPE hints (Django→django:django, Flask→pallets:flask...)
+               ├─ _resolve_cpe()  [shared - xem trên]
+               ├─ nvd_api.search_by_cpe(cpe)  [shared]
+               └─ _enrich_cves(cves)          [shared]
+                     ↑ Không truyền software_analysis vì package
+                       không có behavioral context như PE
+```
+
+**Kết quả trả về:**
+```json
+{
+  "analysis_type": "packages",
+  "ecosystem": "python",
+  "packages": [
+    {
+      "name": "Django", "version": "3.2.0",
+      "cpe": "cpe:2.3:a:djangoproject:django:3.2.0:*...",
+      "vulnerabilities": [...],
+      "cve_count": 12
+    }
+  ],
+  "total_vulnerabilities": 47,
+  "summary": {"critical": 3, "high": 15, ...}
+}
+```
+
+---
+
+### Input 3: Tìm Kiếm Theo Tên
+
+```
 POST /api/search
 Body: {"software_name": "WinRAR", "version": "6.0", "max_results": 50}
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  1. CPE Resolution từ tên phần mềm            │
-│     ├─ AI: Claude haiku matching               │
-│     ├─ FAISS semantic search                   │
-│     └─ Pattern matching                        │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  2. NVD query by CPE                          │
-│     Fallback: keyword search nếu CPE thất bại │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  3. Severity + Relevance enrichment           │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-Trả về list CVEs với scores
+         │
+         ▼
+         ├─ _resolve_cpe({product: "WinRAR", version: "6.0",
+         │                extraction_method: "manual_input"})
+         │     [shared - xem trên]
+         │
+         ├─ nvd_api.search_by_cpe(cpe)  [shared]
+         │
+         └─ _enrich_cves(cves)          [shared]
+```
+
+```
+POST /api/query-cpe
+Body: {"cpe": "cpe:2.3:a:rarlab:winrar:6.0:*:*:*:*:*:*:*"}
+         │
+         ├─ Bỏ qua bước resolve_cpe (đã có CPE sẵn)
+         ├─ nvd_api.search_by_cpe(cpe)  [shared]
+         └─ _enrich_cves(cves)          [shared]
 ```
 
 ---
 
-## 5. WORKFLOW TRAINING MODELS (One-time Setup)
+## Sơ Đồ Shared Components
+
+```
+                    ┌─────────────────────────────────────┐
+                    │         SHARED CORE PIPELINE        │
+                    │                                     │
+  PE Analysis ─────▶│  _resolve_cpe()                    │
+  Package Analysis ─▶│    ├─ CPEExtractor (rules)         │
+  Search ────────────▶│    ├─ Claude AI (ai_match_cpe)    │
+  CPE Query ─────────▶│    └─ FAISS semantic              │
+                    │                                     │
+                    │  NVDAPIv2.search_by_cpe()           │
+                    │    ├─ Local cache                   │
+                    │    ├─ NVD API v2                    │
+                    │    └─ Keyword fallback              │
+                    │                                     │
+                    │  _enrich_cves()                     │
+                    │    ├─ SeverityPipeline (ensemble)   │
+                    │    └─ RelevanceScorer               │
+                    └─────────────────────────────────────┘
+                         ↑                    ↑
+              models/severity_clf.pkl    models/cpe_index.faiss
+              models/bert_severity/      (được load 1 lần khi khởi động)
+              models/xgboost_clf.pkl
+```
+
+---
+
+## Training Pipeline (One-time Setup)
+
+Pipeline training tạo ra các file model được load lúc khởi động:
 
 ```
 python untils/run_training_pipeline.py
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 1: Thu thập dữ liệu (30-60 phút)        │
-│  build_training_data.py                       │
-│                                                │
-│  ├─ Keyword mode: ~5k-15k CVE records (10ph)  │
-│  └─ Bulk mode: 220k+ CVE records (60ph)       │
-│                                                │
-│  Output: data/training/cve_severity_train.csv  │
-│  Format: description,severity,cvss_score,...   │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 2: Train TF-IDF + Logistic Regression   │
-│  train_severity_model.py (~5 phút, CPU-only)  │
-│                                                │
-│  ├─ TF-IDF vectorization (n-gram 1-3)         │
-│  ├─ Logistic Regression với class balancing   │
-│  ├─ 5-fold cross-validation                   │
-│  └─ Output: models/severity_clf.pkl           │
-│     Accuracy: 86.83%                          │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 3: Fine-tune SecBERT                    │
-│  finetune_bert_severity.py                    │
-│  GPU ~30ph / CPU ~2 giờ                       │
-│                                                │
-│  ├─ Base model: jackaduma/SecBERT             │
-│  ├─ Fine-tune trên CVE descriptions           │
-│  ├─ 3-5 epochs với learning rate scheduling   │
-│  └─ Output: models/bert_severity/             │
-│     Accuracy: 97.94%                          │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 4: Train XGBoost                        │
-│  train_xgboost_severity.py (~10 phút)         │
-│                                                │
-│  ├─ Features: TF-IDF + CVSS score + vector    │
-│  ├─ Gradient boosting với early stopping      │
-│  └─ Output: models/xgboost_clf.pkl            │
-│     Accuracy: 92-96%                          │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 5: Build CPE Semantic Index             │
-│  build_cpe_index.py (~15-30 phút)             │
-│                                                │
-│  ├─ Download NVD CPE dictionary               │
-│  ├─ Generate embeddings (sentence-transformers)│
-│  ├─ Build FAISS IVF index                     │
-│  └─ Output: models/cpe_index.faiss            │
-│             models/cpe_meta.pkl               │
-└────────────────────────────────────────────────┘
-     │
-     ▼
-┌────────────────────────────────────────────────┐
-│  BƯỚC 6: Evaluate & Report                    │
-│  evaluate_models.py                           │
-│                                                │
-│  ├─ So sánh accuracy, F1, precision, recall   │
-│  └─ Output: models/severity_report.txt        │
-└────────────────────────────────────────────────┘
+         │
+         ├─ build_training_data.py
+         │     NVD API → 5k–220k CVE records
+         │     Output: data/training/cve_severity_train.csv
+         │
+         ├─ preprocess_data.py
+         │     Làm sạch data, cân bằng class
+         │
+         ├─ train_severity_model.py
+         │     TF-IDF + Logistic Regression
+         │     Output: models/severity_clf.pkl          ← load lúc boot
+         │
+         ├─ finetune_bert_severity.py
+         │     Fine-tune jackaduma/SecBERT trên CVE descriptions
+         │     Output: models/bert_severity/             ← load lúc boot
+         │
+         ├─ train_xgboost_severity.py
+         │     XGBoost + CVSS numeric features
+         │     Output: models/xgboost_clf.pkl            ← load lúc boot
+         │
+         ├─ build_cpe_index.py
+         │     Download NVD CPE dictionary
+         │     Generate sentence-transformer embeddings
+         │     Build FAISS IVF index
+         │     Output: models/cpe_index.faiss            ← load lúc boot
+         │             models/cpe_meta.pkl
+         │
+         └─ evaluate_models.py
+               So sánh accuracy/F1/precision/recall
+               Output: models/severity_report.txt
 ```
 
 ---
 
-## 6. CÁC API ENDPOINTS
-
-| Endpoint | Method | Mô Tả |
-|----------|--------|--------|
-| `/` | GET | Frontend SPA (index.html) |
-| `/api/analyze` | POST | Upload PE binary hoặc package manifest |
-| `/api/analyze-packages` | POST | Alias cho phân tích packages |
-| `/api/search` | POST | Tìm kiếm theo tên phần mềm + version |
-| `/api/query-cpe` | POST | Query trực tiếp bằng CPE string |
-| `/api/export-all` | POST | Export toàn bộ CVE cho CPE (không giới hạn) |
-| `/api/status` | GET | Trạng thái hệ thống + features available |
-| `/api/stats` | GET | Alias cho `/api/status` |
-
----
-
-## 7. KIẾN TRÚC CÁC THÀNH PHẦN
+## Khởi Động Hệ Thống
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                     FRONTEND                         │
-│              (HTML + CSS + Vanilla JS)              │
-│    - Tab: File Analysis / Package / Search / CPE    │
-│    - Drag-and-drop upload                           │
-│    - Real-time results display                      │
-└─────────────────────────┬───────────────────────────┘
-                          │ HTTP REST API
-┌─────────────────────────▼───────────────────────────┐
-│                   FLASK BACKEND                      │
-│                    app.py                           │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ Static   │  │ Package  │  │ Search/CPE Query │  │
-│  │ Analyzer │  │ Analyzer │  │                  │  │
-│  └──────┬───┘  └──────┬───┘  └────────┬─────────┘  │
-│         │             │               │            │
-│  ┌──────▼─────────────▼───────────────▼─────────┐  │
-│  │              CPE Extraction Layer             │  │
-│  │    KNOWN_PATTERNS → AI (Claude) → FAISS      │  │
-│  └──────────────────────┬────────────────────────┘  │
-│                         │                          │
-│  ┌──────────────────────▼────────────────────────┐  │
-│  │           NVD API v2 Client                   │  │
-│  │        + Local Cache System                   │  │
-│  └──────────────────────┬────────────────────────┘  │
-│                         │                          │
-│  ┌──────────────────────▼────────────────────────┐  │
-│  │         ML Enrichment Pipeline                │  │
-│  │                                               │  │
-│  │  Severity: TF-IDF + SecBERT + XGBoost        │  │
-│  │  Relevance: Rule-based + SecBERT/CodeBERT     │  │
-│  │  Behavior: CodeBERT + MITRE ATT&CK            │  │
-│  └───────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-                          │
-              ┌───────────▼───────────┐
-              │   External Services   │
-              │                       │
-              │  NVD API v2 (NIST)   │
-              │  Anthropic Claude API │
-              │  HuggingFace Models  │
-              └───────────────────────┘
+python backend/app.py
+         │
+         ├─ Khởi tạo 4 service object (dùng suốt vòng đời app):
+         │     nvd_api       = NVDAPIv2(api_key)       ← giữ session + cache
+         │     cpe_extractor = CPEExtractor()           ← load KNOWN_PATTERNS
+         │     pe_analyzer   = PEStaticAnalyzer()       ← ready to parse PE
+         │     pkg_analyzer  = PackageAnalyzer()        ← load ecosystem parsers
+         │
+         ├─ Load ML models vào RAM (nếu có):
+         │     SeverityPipeline: TF-IDF + SecBERT + XGBoost
+         │     RelevanceScorer:  SecBERT + CodeBERT
+         │     FAISS CPE index
+         │
+         └─ Flask listen trên port 5000
+               GET  /            → frontend SPA
+               POST /api/analyze → _analyze_pe() hoặc _analyze_package_manifest()
+               POST /api/search  → search by name
+               POST /api/query-cpe → direct CPE query
+               POST /api/export-all → export không giới hạn
+               GET  /api/status  → feature availability check
 ```
 
 ---
 
-## 8. WORKFLOW TEST
+## Tóm Tắt
 
-```
-python tests/run_all_test.py
-     │
-     ├─ test_api.py          → Test Flask endpoints (unit)
-     ├─ test_complete.py     → End-to-end integration tests
-     ├─ test_cpe_extractor.py→ Unit tests CPE extraction
-     └─ demo.py              → Interactive demonstration
-```
-
-**Chạy từng bộ test:**
-```bash
-pytest tests/test_api.py -v
-pytest tests/test_complete.py -v
-pytest tests/test_cpe_extractor.py -v
-python tests/demo.py
-```
-
----
-
-## 9. CẤU TRÚC THƯ MỤC
-
-```
-IA_1802/
-├── backend/                  # Flask REST API
-│   ├── app.py               # Entry point chính
-│   ├── ai/                  # ML pipeline
-│   │   ├── severity_pipeline.py   # Ensemble classifier
-│   │   └── relevance_scorer.py    # CVE relevance
-│   ├── ai_analyzer.py       # Claude AI integration
-│   ├── cpe_extractor.py     # CPE từ PE files
-│   ├── nvd_api_v2.py        # NVD API client
-│   ├── package_analyzer.py  # Parse manifest files
-│   ├── static_analyzer.py   # PE static analysis
-│   ├── codebert_analyzer.py # Behavioral analysis
-│   ├── secbert_cve_scorer.py# Semantic relevance
-│   ├── contextual_scorer.py # Rule-based relevance
-│   ├── severity_classifier.py    # TF-IDF model
-│   ├── bert_severity_classifier.py # BERT model
-│   ├── xgboost_severity_classifier.py # XGBoost
-│   └── zero_shot_severity.py     # Deprecated NLI
-├── frontend/                # Web UI
-│   ├── templates/index.html # SPA
-│   └── static/css,js/
-├── untils/                  # Training scripts
-│   ├── run_training_pipeline.py  # Master orchestrator
-│   ├── build_training_data.py    # Data collection
-│   ├── train_severity_model.py   # TF-IDF training
-│   ├── finetune_bert_severity.py # BERT fine-tuning
-│   ├── train_xgboost_severity.py # XGBoost training
-│   ├── build_cpe_index.py        # FAISS index
-│   ├── evaluate_models.py        # Metrics report
-│   └── preprocess_data.py        # Data cleaning
-├── tests/                   # Test suite
-├── models/                  # ML artifacts
-│   ├── cpe_index.faiss      # FAISS semantic index
-│   ├── cpe_meta.pkl         # CPE metadata
-│   └── severity_clf.pkl     # Trained classifiers
-├── data/                    # Data storage
-│   ├── cache/nvd/           # API response cache
-│   └── training/            # Training datasets
-├── uploads/                 # Temporary uploads
-└── requirements.txt         # Python dependencies
-```
-
----
-
-## 10. LUỒNG DỮ LIỆU TỔNG QUAN
-
-```
-                    ┌─────────────┐
-                    │    NVD API  │
-                    │  (NIST.gov) │
-                    └──────┬──────┘
-                           │ CVE data
-                    ┌──────▼──────┐
-                    │  Local Cache│
-                    │data/cache/  │
-                    └──────┬──────┘
-                           │
-┌──────────┐        ┌──────▼──────┐        ┌──────────┐
-│ PE File  │──────▶ │             │◀────── │ Package  │
-│ (.exe)   │        │   Flask     │        │Manifest  │
-└──────────┘        │   Backend   │        └──────────┘
-                    │   app.py    │
-┌──────────┐        │             │◀────── ┌──────────┐
-│ Software │──────▶ │             │        │  Claude  │
-│  Name +  │        └──────┬──────┘        │  AI API  │
-│  Version │               │               └──────────┘
-└──────────┘        ┌──────▼──────┐
-                    │ ML Models   │
-                    │TF-IDF+BERT  │
-                    │  +XGBoost   │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │  Frontend   │
-                    │  (Browser)  │
-                    └─────────────┘
-```
-
----
-
-## 11. ĐỘ CHÍNH XÁC CÁC MODEL
-
-| Model | Accuracy | Tốc độ | Yêu cầu |
-|-------|----------|--------|---------|
-| TF-IDF + Logistic Regression | 86.83% | Rất nhanh | CPU only |
-| XGBoost + CVSS | 92-96% | Nhanh | CPU only |
-| Fine-tuned SecBERT | 97.94% | Chậm | GPU/CPU |
-| Ensemble (kết hợp 3) | Tốt nhất | Trung bình | GPU/CPU |
-
----
-
-*Tài liệu được tạo tự động bằng phân tích codebase.*
+| Component | Vai trò | Được dùng bởi |
+|-----------|---------|---------------|
+| `_resolve_cpe()` | Tìm CPE từ tên phần mềm | PE, Package, Search |
+| `NVDAPIv2` | Truy vấn CVE từ NVD | PE, Package, Search, CPE Query |
+| `_enrich_cves()` | Gán severity + relevance | PE, Package, Search, CPE Query |
+| `PEStaticAnalyzer` | Phân tích PE binary | PE only |
+| `PackageAnalyzer` | Parse manifest dependencies | Package only |
+| `CodeBERT Analyzer` | Behavioral + MITRE mapping | PE only |
+| ML Models (BERT/XGBoost) | Severity classification | Tất cả (qua _enrich_cves) |
+| FAISS Index | Semantic CPE search | Tất cả (qua _resolve_cpe) |
