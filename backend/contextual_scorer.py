@@ -105,6 +105,59 @@ CWE_CATEGORY_MAP = {
 }
 
 
+# ── Capability profile → targeted CWE IDs for supplementary NVD queries ──────
+# Maps what the file CAN DO → what vulnerability classes (CWE) to search for.
+# This bridges static analysis findings directly into the CVE discovery pipeline.
+_CAPABILITY_CWE_MAP: dict[str, list[str]] = {
+    "has_injection":  ["CWE-119", "CWE-120", "CWE-122", "CWE-416", "CWE-190"],
+    "has_execution":  ["CWE-78",  "CWE-94",  "CWE-95"],
+    "has_privilege":  ["CWE-269", "CWE-287", "CWE-732"],
+    "has_crypto":     ["CWE-327", "CWE-326", "CWE-311", "CWE-338"],
+    "has_network":    ["CWE-918", "CWE-601", "CWE-89"],
+    "has_keylog":     ["CWE-200", "CWE-312", "CWE-319"],
+    "has_registry":   ["CWE-798", "CWE-521"],
+    "has_dynload":    ["CWE-427", "CWE-426"],
+    "has_anti_debug": ["CWE-693", "CWE-703"],
+    "has_service":    ["CWE-264", "CWE-732"],
+}
+
+
+def get_targeted_cwe_ids(profile: dict, max_cwe: int = 8) -> list[str]:
+    """
+    Map a file's capability profile → CWE IDs to query NVD for supplementary CVEs.
+
+    Called BEFORE relevance scoring to expand the CVE search using static findings.
+    Prioritises capabilities with the highest risk (Code Execution, Injection,
+    Privilege Escalation) first so the most dangerous CWEs are queried first.
+
+    Args:
+        profile:  Output of build_file_profile()
+        max_cwe:  Maximum number of distinct CWE IDs to return (avoids excessive API calls)
+
+    Returns:
+        Ordered list of unique CWE ID strings, highest-risk capabilities first.
+    """
+    # Priority order: most dangerous capabilities first
+    PRIORITY = [
+        "has_execution", "has_injection", "has_privilege",
+        "has_dynload",   "has_network",   "has_crypto",
+        "has_keylog",    "has_registry",  "has_anti_debug", "has_service",
+    ]
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for capability in PRIORITY:
+        if profile.get(capability):
+            for cwe in _CAPABILITY_CWE_MAP.get(capability, []):
+                if cwe not in seen:
+                    seen.add(cwe)
+                    result.append(cwe)
+                    if len(result) >= max_cwe:
+                        return result
+
+    return result
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def build_file_profile(pe_analysis: dict) -> dict:

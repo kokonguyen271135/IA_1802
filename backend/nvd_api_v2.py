@@ -219,6 +219,65 @@ class NVDAPIv2:
         print(f"[NVD Search] [+] Keyword search returned {len(all_cves)} CVEs")
         return all_cves
 
+    def search_by_cwe(self, cwe_id: str, keyword: str = '', max_results: int = 20) -> list:
+        """
+        Search CVEs by CWE ID (weakness type), optionally filtered by keyword.
+
+        NVD API v2 supports the 'cweId' parameter for targeted weakness queries.
+        Used for CWE-based supplementary CVE discovery from static analysis findings.
+
+        Args:
+            cwe_id:      CWE identifier (e.g. "CWE-119", "CWE-416")
+            keyword:     Optional product/software name to narrow results
+            max_results: Maximum CVEs to return
+
+        Returns:
+            List of CVE dicts with 'search_method' = 'cwe'
+        """
+        print(f"\n[NVD CWE] Searching {cwe_id}" + (f" + '{keyword}'" if keyword else ""))
+        self._rate_limit()
+
+        params: dict = {
+            'cweId': cwe_id,
+            'resultsPerPage': min(max_results, 100),
+            'startIndex': 0,
+        }
+        if keyword:
+            params['keywordSearch'] = keyword
+
+        headers: dict = {}
+        if self.api_key:
+            headers['apiKey'] = self.api_key
+
+        try:
+            response = requests.get(
+                self.base_url,
+                params=params,
+                headers=headers,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            total = data.get('totalResults', 0)
+            print(f"[NVD CWE]  → {total} CVEs found for {cwe_id}")
+
+            cves = []
+            for vuln in data.get('vulnerabilities', [])[:max_results]:
+                cve_data = self._parse_cve(vuln)
+                cve_data['search_method'] = 'cwe'
+                cve_data['matched_cwe']   = cwe_id
+                cves.append(cve_data)
+
+            return cves
+
+        except requests.exceptions.HTTPError as e:
+            print(f"[NVD CWE] HTTP error ({cwe_id}): {e}")
+            return []
+        except Exception as e:
+            print(f"[NVD CWE] Error ({cwe_id}): {e}")
+            return []
+
     def _parse_cve(self, vuln_data):
         """Parse NVD vulnerability data - EXACT format"""
         

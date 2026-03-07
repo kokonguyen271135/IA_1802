@@ -33,6 +33,7 @@ from static_analyzer     import PEStaticAnalyzer
 from package_analyzer    import PackageAnalyzer, PackageAnalyzer as _PKG
 from ai_analyzer         import (
     ai_match_cpe, ai_analyze_severity, ai_analyze_static_behavior,
+    ai_suggest_additional_searches, ai_explain_cve_relevance,
     is_available as ai_available,
 )
 from cpe_semantic_matcher import (
@@ -49,6 +50,10 @@ from ai.relevance_scorer import (
     score_cves              as ai_score_relevance,
     get_profile_text        as ai_profile_text,
     is_semantic_available   as secbert_available,
+)
+from contextual_scorer import (
+    build_file_profile      as build_pe_profile,
+    get_targeted_cwe_ids    as get_cwe_targets,
 )
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
@@ -301,12 +306,64 @@ def _analyze_pe(filepath: Path, filename: str):
             'extraction_method': cpe_info.get('extraction_method', ''),
         }
 
-        # ── 3. CVE lookup ─────────────────────────────────────────────────────
+        # ── 3. AI-driven investigation strategy (before CVE queries) ──────────
+        ai_search_strategy = None
+        if ai_available():
+            ai_search_strategy = ai_suggest_additional_searches(
+                static_result=result,
+                software_name=f"{vendor} {product}".strip() or filename,
+            )
+            if ai_search_strategy.get("success"):
+                print(f"[PE] AI search strategy: {ai_search_strategy.get('vulnerability_classes', [])}")
+            result['ai_search_strategy'] = ai_search_strategy
+
+        # ── 4. CVE lookup ─────────────────────────────────────────────────────
         if cpe:
             print(f"[PE] Querying NVD: {cpe}")
             cves = nvd_api.search_by_cpe(cpe, max_results=50)
+            print(f"[PE] Found {len(cves)} CVEs via CPE")
+
+            # ── 4b. CWE-based supplementary CVE discovery ──────────────────
+            # Bridge static analysis → CVE discovery: query NVD by weakness types
+            # inferred from the file's suspicious API categories.
+            pe_profile = build_pe_profile(result)
+            cwe_targets = get_cwe_targets(pe_profile, max_cwe=5)
+
+            # Also include any CWE IDs suggested by Claude
+            if ai_search_strategy and ai_search_strategy.get("success"):
+                for cwe in (ai_search_strategy.get("cwe_ids") or []):
+                    if cwe not in cwe_targets:
+                        cwe_targets.append(cwe)
+                cwe_targets = cwe_targets[:8]  # cap total
+
+            cwe_cves_found: list[dict] = []
+            existing_ids = {c.get('cve_id') for c in cves}
+            sw_keyword = (product or vendor or filename)[:40]  # narrow CWE search to this product
+
+            for cwe_id in cwe_targets:
+                supplementary = nvd_api.search_by_cwe(cwe_id, keyword=sw_keyword, max_results=10)
+                for cv in supplementary:
+                    if cv.get('cve_id') not in existing_ids:
+                        existing_ids.add(cv.get('cve_id'))
+                        cv['discovery_method'] = f'cwe_search ({cwe_id})'
+                        cwe_cves_found.append(cv)
+
+            if cwe_cves_found:
+                print(f"[PE] +{len(cwe_cves_found)} supplementary CVEs via CWE analysis")
+                cves = cves + cwe_cves_found
+
+            # ── 4c. AI keyword supplementary search ───────────────────────
+            if ai_search_strategy and ai_search_strategy.get("success"):
+                for kw in (ai_search_strategy.get("additional_keywords") or [])[:2]:
+                    kw_cves = nvd_api.search_by_keyword(kw, max_results=8)
+                    for cv in kw_cves:
+                        if cv.get('cve_id') not in existing_ids:
+                            existing_ids.add(cv.get('cve_id'))
+                            cv['discovery_method'] = f'ai_keyword ({kw})'
+                            cves.append(cv)
+
             stats = _calc_stats(cves)
-            print(f"[PE] Found {len(cves)} CVEs")
+            print(f"[PE] Total CVEs after supplementary search: {len(cves)}")
 
             cves = _enrich_cves(cves, result)
             result['behavior_profile_text'] = ai_profile_text(result)
@@ -314,11 +371,25 @@ def _analyze_pe(filepath: Path, filename: str):
             result['vulnerabilities'] = cves[:50]
             result['cve_statistics']  = stats
 
+            # ── 4d. Per-CVE AI contextual explanations for top CVEs ────────
+            # Claude explains WHY each top CVE is specifically relevant to this file.
+            # Limited to top 3 high-relevance CVEs to keep API costs low.
+            if ai_available() and cves:
+                top_for_explain = [
+                    c for c in cves[:10]
+                    if c.get('relevance', {}).get('score', 0) >= 0.45
+                        or c.get('cvss_score', 0) >= 8.0
+                ][:3]
+                for cv in top_for_explain:
+                    explanation = ai_explain_cve_relevance(cv, result)
+                    if explanation.get("success"):
+                        cv['ai_relevance_explanation'] = explanation
+
             # Embedded component CVEs
             component_cves = _lookup_component_cves(result.get('components', []))
             if component_cves:
-                existing_ids = {c.get('cve_id') for c in cves}
-                new_cves = [c for c in component_cves if c.get('cve_id') not in existing_ids]
+                comp_existing = {c.get('cve_id') for c in cves}
+                new_cves = [c for c in component_cves if c.get('cve_id') not in comp_existing]
                 result['component_vulnerabilities'] = new_cves[:50]
                 result['component_cve_count']       = len(component_cves)
 
@@ -335,7 +406,33 @@ def _analyze_pe(filepath: Path, filename: str):
                     stats=stats,
                 )
         else:
-            print(f"[PE] No CPE resolved — skipping CVE lookup")
+            print(f"[PE] No CPE resolved — skipping CPE CVE lookup")
+
+            # Even without a CPE, run CWE-based search using static findings alone
+            pe_profile = build_pe_profile(result)
+            cwe_targets = get_cwe_targets(pe_profile, max_cwe=5)
+            if ai_search_strategy and ai_search_strategy.get("success"):
+                for cwe in (ai_search_strategy.get("cwe_ids") or []):
+                    if cwe not in cwe_targets:
+                        cwe_targets.append(cwe)
+                cwe_targets = cwe_targets[:8]
+
+            cwe_cves: list[dict] = []
+            seen_ids: set[str] = set()
+            sw_keyword = (product or vendor or filename)[:40]
+            for cwe_id in cwe_targets:
+                supplementary = nvd_api.search_by_cwe(cwe_id, keyword=sw_keyword, max_results=8)
+                for cv in supplementary:
+                    if cv.get('cve_id') not in seen_ids:
+                        seen_ids.add(cv.get('cve_id'))
+                        cv['discovery_method'] = f'cwe_search_no_cpe ({cwe_id})'
+                        cwe_cves.append(cv)
+
+            if cwe_cves:
+                print(f"[PE] {len(cwe_cves)} CVEs found via CWE analysis (no CPE)")
+                cwe_cves = _enrich_cves(cwe_cves, result)
+                result['vulnerabilities']  = cwe_cves[:30]
+                result['cve_statistics']   = _calc_stats(cwe_cves)
 
         # AI static behavior (when no CVEs or high-risk file)
         risk_level = result.get('risk', {}).get('level', 'CLEAN')

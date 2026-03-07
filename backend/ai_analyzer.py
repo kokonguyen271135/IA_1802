@@ -226,7 +226,179 @@ Respond with ONLY valid JSON:
         return {"success": False, "error": str(exc)}
 
 
-# ─── 3. AI Static Behavior Analysis ─────────────────────────────────────────
+# ─── 3. AI-Driven CVE Search Strategy ───────────────────────────────────────
+
+def ai_suggest_additional_searches(static_result: dict, software_name: str = "") -> dict:
+    """
+    Use Claude to analyze static analysis findings and propose an expanded CVE
+    search strategy — going beyond what CPE matching alone can find.
+
+    This function closes the gap between static analysis and CVE discovery:
+    instead of waiting for rule-based keyword matching, Claude reasons about
+    which vulnerability classes, CWE IDs, and search terms are most relevant
+    given the binary's actual behavior.
+
+    Args:
+        static_result: Full output from PEStaticAnalyzer.analyze()
+        software_name: Product name (helps narrow keyword suggestions)
+
+    Returns:
+        {
+            "success": bool,
+            "additional_keywords": [str, ...],   # extra NVD keyword searches
+            "cwe_ids": [str, ...],               # specific CWE IDs to query
+            "vulnerability_classes": [str, ...], # human-readable vuln types
+            "reasoning": str,                    # why these were chosen
+        }
+        or {"success": False, "error": str}
+    """
+    if not is_available():
+        return {"success": False, "error": "AI not available"}
+
+    imports    = static_result.get("imports", {})
+    by_cat     = imports.get("by_category", {})
+    suspicious = imports.get("suspicious", [])[:15]
+    strings    = static_result.get("strings", {})
+    components = static_result.get("components", [])
+    risk       = static_result.get("risk", {})
+
+    api_summary    = {cat: [e["function"] for e in entries] for cat, entries in by_cat.items()}
+    component_list = [f"{c['name']} {c.get('version', '')}" for c in components]
+    embedded_urls  = strings.get("URLs", [])[:5]
+    suspicious_cmds = strings.get("Suspicious Commands", [])[:3]
+
+    prompt = f"""You are a cybersecurity expert specializing in vulnerability research.
+
+Analyze the following Windows PE binary static analysis findings and suggest
+an EXPANDED CVE search strategy beyond the standard CPE-based lookup.
+
+=== BINARY PROFILE ===
+Software: {software_name or "(unknown)"}
+Risk score: {risk.get("score", 0)}/100 ({risk.get("level", "UNKNOWN")})
+Detected API categories: {list(by_cat.keys())}
+Key suspicious APIs: {[e["function"] for e in suspicious]}
+Embedded components: {component_list or "none"}
+Embedded URLs: {embedded_urls or "none"}
+Suspicious commands: {suspicious_cmds or "none"}
+
+=== TASK ===
+Based on these findings, recommend an ADDITIONAL CVE search strategy.
+Think: "Given these specific APIs and behaviors, what other vulnerability classes
+should we look for that a CPE-only query would miss?"
+
+Focus on:
+1. CWE IDs that match the file's capabilities (process injection → CWE-119/120, etc.)
+2. Additional NVD keyword search terms (specific attack technique names)
+3. High-value vulnerability classes for this specific behavioral profile
+
+Respond with ONLY valid JSON:
+{{
+  "additional_keywords": ["keyword1", "keyword2"],
+  "cwe_ids": ["CWE-XXX", "CWE-YYY"],
+  "vulnerability_classes": ["Buffer Overflow", "Privilege Escalation"],
+  "reasoning": "One concise sentence explaining the search strategy"
+}}"""
+
+    try:
+        msg = _client().messages.create(
+            model=CPE_MODEL,          # haiku — fast, this runs per-file
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = _extract_json(msg.content[0].text.strip())
+        if result:
+            result["success"] = True
+            return result
+        return {"success": False, "error": "Could not parse AI response"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+# ─── 4. AI Per-CVE Contextual Explanation ────────────────────────────────────
+
+def ai_explain_cve_relevance(cve: dict, static_result: dict) -> dict:
+    """
+    Use Claude to explain WHY a specific CVE is relevant to THIS specific file.
+
+    Unlike the rule-based contextual_scorer which gives generic reasons,
+    this function provides file-specific reasoning that accounts for the exact
+    APIs, strings, and behavioral profile of the analyzed binary.
+
+    Args:
+        cve:           Single CVE dict (from NVD, already enriched with relevance score)
+        static_result: PE static analysis output
+
+    Returns:
+        {
+            "success": bool,
+            "explanation": str,       # natural language WHY this CVE matters
+            "exploit_scenario": str,  # concrete attacker scenario for this file
+            "confidence": str,        # "high" | "medium" | "low"
+        }
+        or {"success": False, "error": str}
+    """
+    if not is_available():
+        return {"success": False, "error": "AI not available"}
+
+    imports  = static_result.get("imports", {})
+    by_cat   = imports.get("by_category", {})
+    risk     = static_result.get("risk", {})
+    strings  = static_result.get("strings", {})
+
+    api_summary = {cat: [e["function"] for e in entries[:5]] for cat, entries in by_cat.items()}
+    embedded_ips = strings.get("IP Addresses", [])[:3]
+    embedded_urls = strings.get("URLs", [])[:3]
+
+    cve_id    = cve.get("cve_id", "")
+    desc      = (cve.get("description") or "")[:500]
+    cvss      = cve.get("cvss_score", 0)
+    vector    = cve.get("vector_string", "")
+    weaknesses = cve.get("weaknesses", [])
+
+    prompt = f"""You are a senior vulnerability analyst. Explain concisely why the CVE below
+is (or is not) specifically relevant to the analyzed Windows binary.
+
+=== CVE ===
+ID          : {cve_id}
+CVSS Score  : {cvss} | Vector: {vector}
+Weaknesses  : {weaknesses}
+Description : {desc}
+
+=== BINARY PROFILE ===
+Risk: {risk.get("level", "UNKNOWN")} ({risk.get("score", 0)}/100)
+Suspicious API categories present: {list(by_cat.keys())}
+Key APIs: {api_summary}
+Embedded IPs: {embedded_ips or "none"} | URLs: {embedded_urls or "none"}
+
+=== TASK ===
+1. Does this CVE directly relate to what this binary is doing? Why?
+2. What is the realistic exploit scenario for an attacker using this binary + this CVE?
+
+Keep it concise (2-3 sentences each). Use specific API names where relevant.
+
+Respond with ONLY valid JSON:
+{{
+  "explanation": "Why this CVE is relevant to this specific binary...",
+  "exploit_scenario": "An attacker could...",
+  "confidence": "high|medium|low"
+}}"""
+
+    try:
+        msg = _client().messages.create(
+            model=CPE_MODEL,          # haiku — fast, called per-CVE for top N only
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = _extract_json(msg.content[0].text.strip())
+        if result:
+            result["success"] = True
+            return result
+        return {"success": False, "error": "Could not parse AI response"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+# ─── 5. AI Static Behavior Analysis ─────────────────────────────────────────
 
 def ai_analyze_static_behavior(static_result: dict) -> dict:
     """
