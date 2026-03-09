@@ -45,6 +45,8 @@ Cách dùng
 
 from __future__ import annotations
 
+from pathlib import Path
+
 # ── CWE catalog ───────────────────────────────────────────────────────────────
 # id → (name, short_description, severity_weight)
 CWE_CATALOG: dict[str, tuple[str, str, float]] = {
