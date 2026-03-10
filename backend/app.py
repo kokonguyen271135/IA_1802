@@ -309,6 +309,17 @@ def _analyze_pe(filepath: Path, filename: str):
         if cpe:
             print(f"[PE] Querying NVD: {cpe}")
             cves = nvd_api.search_by_cpe(cpe, max_results=50)
+            # Keyword fallback: CPE vendor name may differ from NVD (e.g.
+            # "simon_tatham" vs "putty").  If CPE lookup returns nothing, retry
+            # with "product version" keyword search before falling through to
+            # CWE prediction.
+            if not cves and product and version:
+                kw = f"{product} {version}".strip()
+                print(f"[PE] CPE returned 0 CVEs — retrying with keyword: {kw!r}")
+                cves = nvd_api.search_by_keyword(kw, max_results=50)
+            elif not cves and product:
+                print(f"[PE] CPE returned 0 CVEs — retrying with keyword: {product!r}")
+                cves = nvd_api.search_by_keyword(product, max_results=50)
             stats = _calc_stats(cves)
             print(f"[PE] Found {len(cves)} CVEs")
 
