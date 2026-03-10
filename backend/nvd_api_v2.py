@@ -72,8 +72,13 @@ class NVDAPIv2:
             self._rate_limit()
             
             # Build request
+            # Use virtualMatchString instead of cpeName:
+            # cpeName requires an exact registered CPE in the NVD dictionary and
+            # returns 0 results when the CPE string isn't registered (e.g. version
+            # variants).  virtualMatchString does a wildcard/partial match and works
+            # even when the exact CPE is not in the dictionary.
             params = {
-                'cpeName': cpe_name,
+                'virtualMatchString': cpe_name,
                 'resultsPerPage': min(results_per_page, 2000),  # NVD max = 2000
                 'startIndex': start_index
             }
