@@ -576,12 +576,27 @@ class CWEPredictor:
         product   = (cpe_info.get("product") or pe_info.get("product_name") or "").strip()
         file_type = analysis.get("file_type", "")
 
+        # Values that are useless as NVD search keywords
+        _JUNK = {"unknown", "n/a", "none", "na", "", "null"}
+
+        def _is_useful(s: str) -> bool:
+            """Return True only when s looks like a real vendor/product name."""
+            sl = s.lower()
+            if sl in _JUNK:
+                return False
+            # Reject strings that look like filenames / version strings
+            # e.g. "seb_3.9.0.787_setupbundle"
+            import re as _re
+            if _re.search(r'[\d]+\.[\d]+', sl):   # contains version number
+                return False
+            return True
+
         kw_parts: list[str] = []
-        if vendor:
+        if _is_useful(vendor):
             kw_parts.append(vendor)
-        if product and product.lower() != vendor.lower():
+        if _is_useful(product) and product.lower() != vendor.lower():
             kw_parts.append(product)
-        # Only filter by keyword when we have a specific vendor/product;
+        # Only filter by keyword when we have a real vendor/product;
         # without it we leave keyword=None so NVD still returns CWE-matched CVEs
         keyword = " ".join(kw_parts) if kw_parts else None
         print(f"[CWE] NVD keyword filter: {keyword!r}")
