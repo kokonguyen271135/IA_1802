@@ -611,6 +611,13 @@ class CWEPredictor:
             cves = self.nvd_api.search_by_cwe(cwe_id,
                                                max_results=self.max_cves_per_cwe,
                                                keyword=keyword)
+            # If keyword filtered everything out, retry without keyword so we
+            # always return representative CVEs for the predicted CWE.
+            if not cves and keyword:
+                print(f"[CWE] Keyword {keyword!r} returned 0 — retrying without keyword")
+                cves = self.nvd_api.search_by_cwe(cwe_id,
+                                                   max_results=self.max_cves_per_cwe,
+                                                   keyword=None)
             for cve in cves:
                 cid = cve.get("cve_id", "")
                 if cid and cid not in seen_ids:

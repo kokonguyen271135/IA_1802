@@ -663,7 +663,7 @@ function renderPECVEs(data) {
         }
 
         _renderPECVEStats(stats, vulns, statsEl);
-        _renderPECVEList(listEl, vulns, stats, 'CVEs matching predicted weaknesses');
+        _renderPECVEList(listEl, vulns, stats, 'Predict CVEs');
         return;
     }
 
