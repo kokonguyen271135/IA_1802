@@ -106,7 +106,7 @@ def _count_csv(path: Path) -> int:
     if not path.exists():
         return 0
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8", errors="ignore") as f:
             return sum(1 for _ in f) - 1  # subtract header
     except Exception:
         return 0
