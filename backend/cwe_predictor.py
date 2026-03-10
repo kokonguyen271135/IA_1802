@@ -568,7 +568,26 @@ class CWEPredictor:
         for p in predicted:
             print(f"      {p['cwe_id']} ({p['label']}, conf={p['confidence']:.2f}): {p['name']}")
 
-        # Step 2: Query NVD for top-K CWEs
+        # Step 2: Build keyword from PE context to narrow NVD results
+        pe_info   = analysis.get("pe_info", {})
+        cpe_info  = analysis.get("cpe_info", {})
+        # Prefer vendor/product from CPE extraction; fall back to PE metadata
+        vendor    = (cpe_info.get("vendor") or pe_info.get("company_name") or "").strip()
+        product   = (cpe_info.get("product") or pe_info.get("product_name") or "").strip()
+        file_type = analysis.get("file_type", "")
+
+        kw_parts: list[str] = []
+        if vendor:
+            kw_parts.append(vendor)
+        if product and product.lower() != vendor.lower():
+            kw_parts.append(product)
+        # Always anchor to Windows for PE executables if no specific product found
+        if not kw_parts and "PE" in file_type:
+            kw_parts.append("Windows")
+        keyword = " ".join(kw_parts) if kw_parts else None
+        print(f"[CWE] NVD keyword filter: {keyword!r}")
+
+        # Step 3: Query NVD for top-K CWEs
         all_cves: list[dict] = []
         seen_ids: set[str]   = set()
 
@@ -576,7 +595,8 @@ class CWEPredictor:
             cwe_id = pred["cwe_id"]
             print(f"[CWE] Querying NVD for {cwe_id} …")
             cves = self.nvd_api.search_by_cwe(cwe_id,
-                                               max_results=self.max_cves_per_cwe)
+                                               max_results=self.max_cves_per_cwe,
+                                               keyword=keyword)
             for cve in cves:
                 cid = cve.get("cve_id", "")
                 if cid and cid not in seen_ids:
@@ -586,7 +606,7 @@ class CWEPredictor:
                     cve["matched_cwe_confidence"]  = pred["confidence"]
                     all_cves.append(cve)
 
-        # Step 3: Sort — first by CWE confidence, then by CVSS score
+        # Step 4: Sort — first by CWE confidence, then by CVSS score
         all_cves.sort(
             key=lambda c: (
                 c.get("matched_cwe_confidence", 0),
@@ -595,7 +615,7 @@ class CWEPredictor:
             reverse=True,
         )
 
-        # Step 4: Build human-readable summary
+        # Step 5: Build human-readable summary
         top_cwe_names = ", ".join(
             f"{p['cwe_id']} ({p['name']})" for p in predicted[:3]
         )

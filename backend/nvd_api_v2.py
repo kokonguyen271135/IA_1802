@@ -358,7 +358,8 @@ class NVDAPIv2:
             'cna': cve.get('sourceIdentifier', 'Unknown')
         }
     
-    def search_by_cwe(self, cwe_id: str, max_results: int = 20) -> list:
+    def search_by_cwe(self, cwe_id: str, max_results: int = 20,
+                      keyword: str | None = None) -> list:
         """
         Search CVEs by CWE ID — used by Hướng 3 (CWE behavior prediction).
 
@@ -368,11 +369,13 @@ class NVDAPIv2:
         Args:
             cwe_id:      CWE identifier string, e.g. "CWE-94"
             max_results: Maximum number of CVEs to return
+            keyword:     Optional keyword to narrow results (e.g. "Windows")
 
         Returns:
             List of CVE dicts (same format as search_by_cpe / search_by_keyword)
         """
-        print(f"\n[NVD Search] CWE query: {cwe_id} (max {max_results})")
+        kw_label = f" + keyword='{keyword}'" if keyword else ""
+        print(f"\n[NVD Search] CWE query: {cwe_id}{kw_label} (max {max_results})")
 
         all_cves: list = []
         start_index    = 0
@@ -386,6 +389,8 @@ class NVDAPIv2:
                 "resultsPerPage": min(max_results, 2000),
                 "startIndex":     start_index,
             }
+            if keyword:
+                params["keywordSearch"] = keyword
             headers = {"apiKey": self.api_key} if self.api_key else {}
 
             try:
