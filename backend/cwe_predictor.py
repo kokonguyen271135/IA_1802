@@ -503,6 +503,96 @@ class CWEPredictor:
         ml_status = "ML model loaded" if self._classifier.is_available() else "rule-based fallback"
         print(f"[CWE Predictor] Initialized ({ml_status})")
 
+    # ── Behavior → keywords mapping for CVE relevance scoring ─────────────────
+    _BEHAVIOR_KEYWORDS: dict[str, list[str]] = {
+        "process_injection":    ["injection", "process", "memory", "shellcode",
+                                  "remote thread", "dll inject", "hollowing"],
+        "code_execution":       ["execution", "execute", "shell", "command",
+                                  "arbitrary code", "rce", "remote code"],
+        "network_communication":["network", "remote", "socket", "http", "download",
+                                  "c2", "command and control", "backdoor", "trojan"],
+        "privilege_escalation": ["privilege", "elevation", "token", "admin",
+                                  "local privilege", "escalat"],
+        "keylogging":           ["keylog", "keystroke", "hook", "input capture"],
+        "registry_manipulation":["registry", "regedit", "hklm", "hkcu", "regkey"],
+        "cryptography":         ["encrypt", "decrypt", "crypto", "ransom",
+                                  "ransomware", "cipher"],
+        "anti_debugging":       ["debug", "sandbox", "evasion", "anti-analysis",
+                                  "obfuscat", "packer", "packed"],
+        "service_manipulation": ["service", "daemon", "scm", "persistence",
+                                  "startup", "autorun"],
+        "dynamic_loading":      ["dynamic", "loadlibrary", "reflective", "loader"],
+    }
+
+    # Terms that appear only in web/scripting CVEs — penalize if present without
+    # any compensating Windows/PE signals
+    _WEB_ONLY_TERMS: list[str] = [
+        "php", "javascript", "html", "css", "xss", "cross-site",
+        "wordpress", "joomla", "drupal", "magento", "typo3",
+        "web browser", "firefox", "chrome", "safari", "internet explorer",
+        "ruby on rails", "django", "laravel", "asp.net web",
+        "sql injection via", "stored xss", "reflected xss",
+    ]
+
+    # Terms that indicate relevance to Windows PE / native executables
+    _WINDOWS_TERMS: list[str] = [
+        "windows", "win32", "dll", "exe", "executable", "binary",
+        "kernel", "ntdll", "winsock", "winapi", "nt kernel",
+        "active directory", "registry", "com object", "service",
+        "device driver", "sys file", "heap", "stack overflow",
+        "buffer overflow", "memory corruption", "use-after-free",
+        "out-of-bounds", "privilege escalation", "elevation of privilege",
+    ]
+
+    def _score_relevance(
+        self,
+        cve: dict,
+        active_behaviors: list[str],
+        analysis: dict,
+    ) -> float:
+        """
+        Tính điểm liên quan giữa một CVE và PE file đang phân tích.
+
+        Trả về float; giá trị âm nghĩa là CVE gần như chắc chắn không liên quan.
+        """
+        desc = (cve.get("description") or "").lower()
+        score = 0.0
+
+        # ── 1. Windows / native binary signals (+) ────────────────────────────
+        win_hits = sum(1 for t in self._WINDOWS_TERMS if t in desc)
+        score += min(win_hits * 0.08, 0.30)
+
+        # ── 2. Behavior keyword match (+) ─────────────────────────────────────
+        for behavior in active_behaviors:
+            keywords = self._BEHAVIOR_KEYWORDS.get(behavior, [])
+            hits = sum(1 for k in keywords if k in desc)
+            if hits:
+                score += min(hits * 0.06, 0.12)   # max 0.12 per behavior
+
+        # ── 3. Web-only penalty (–) ───────────────────────────────────────────
+        web_hits = sum(1 for t in self._WEB_ONLY_TERMS if t in desc)
+        penalty  = min(web_hits * 0.12, 0.40)
+        score   -= penalty
+
+        # ── 4. High CVSS gets a small boost (+) ──────────────────────────────
+        cvss = cve.get("cvss_score", 0.0) or 0.0
+        if cvss >= 9.0:
+            score += 0.05
+        elif cvss >= 7.0:
+            score += 0.02
+
+        # ── 5. CPE platform filter (+) ────────────────────────────────────────
+        cpes = cve.get("cpes", [])
+        if cpes:
+            has_win_cpe = any(
+                "microsoft:windows" in c.lower() or ":o:" in c.lower()
+                for c in cpes
+            )
+            if has_win_cpe:
+                score += 0.15
+
+        return round(max(-1.0, min(1.0, score)), 4)
+
     def _predict_cwes(self, analysis: dict) -> tuple[list[dict], str]:
         """
         Predict CWEs — thử ML model trước, fallback rule-based.
@@ -627,11 +717,25 @@ class CWEPredictor:
                     cve["matched_cwe_confidence"]  = pred["confidence"]
                     all_cves.append(cve)
 
-        # Step 4: Sort — first by CWE confidence, then by CVSS score
+        # Step 4: Score relevance to PE behavior, filter and re-rank
+        by_category = analysis.get("imports", {}).get("by_category", {})
+        active_behaviors = [k for k, v in by_category.items() if v]
+
+        for cve in all_cves:
+            cve["relevance_score"] = self._score_relevance(
+                cve, active_behaviors, analysis
+            )
+
+        # Drop CVEs that are clearly unrelated to PE/Windows context
+        # (relevance_score < 0 means strong web-only signals, no PE signals)
+        all_cves = [c for c in all_cves if c["relevance_score"] >= 0.0]
+
+        # Sort by combined score: relevance (50%) + CWE confidence (30%) + CVSS (20%)
         all_cves.sort(
             key=lambda c: (
-                c.get("matched_cwe_confidence", 0),
-                c.get("cvss_score", 0),
+                c["relevance_score"] * 0.5
+                + c.get("matched_cwe_confidence", 0) * 0.3
+                + (c.get("cvss_score", 0) / 10.0) * 0.2
             ),
             reverse=True,
         )
@@ -651,7 +755,7 @@ class CWEPredictor:
 
         return {
             "predicted_cwes":    predicted,
-            "cve_results":       all_cves[:50],
+            "cve_results":       all_cves[:20],
             "total_cves":        len(all_cves),
             "prediction_method": pred_method,
             "method":            "cwe_behavior_prediction",
