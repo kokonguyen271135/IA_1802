@@ -599,16 +599,67 @@ function renderPECVEs(data) {
 
     // --- No CPE extracted ---
     if (!cpe) {
+        const cweAnalysis = data.cwe_analysis || {};
+        const predictedCWEs = cweAnalysis.predicted_cwes || [];
+        const cweSource = cweAnalysis.prediction_method || '';
+
+        // Show CWE banner
         const reason = cpeError
             ? `CPE extraction failed: ${cpeError}`
             : (cpeInfo.error || 'Could not identify software version from this file.');
-        listEl.innerHTML = `<p style="color:#f59e0b; padding:10px;">
-            <i class="fas fa-exclamation-triangle"></i>&nbsp;
-            ${escapeHtml(reason)}
+
+        let cweBanner = `<p style="color:#f59e0b; padding:10px 0;">
+            <i class="fas fa-exclamation-triangle"></i>&nbsp;${escapeHtml(reason)}
         </p>`;
-        statsEl.style.display  = 'none';
+
+        if (predictedCWEs.length > 0) {
+            const methodLabel = cweSource === 'secbert_cwe_classifier' ? 'SecBERT ML' : 'Rule-based';
+            const cweList = predictedCWEs.slice(0, 5).map(c => {
+                const confPct = Math.round((c.confidence || 0) * 100);
+                const color = c.label === 'HIGH' ? '#ef4444' : c.label === 'MEDIUM' ? '#f59e0b' : '#6b7280';
+                return `<span style="display:inline-block; margin:3px 4px; padding:3px 8px; border-radius:4px;
+                    border:1px solid ${color}; color:${color}; font-size:12px; font-weight:600;">
+                    ${escapeHtml(c.cwe_id)} ${escapeHtml(c.name)} (${confPct}%)
+                </span>`;
+            }).join('');
+
+            cweBanner += `<div style="background:#1e293b; border:1px solid #334155; border-radius:8px; padding:12px; margin-bottom:12px;">
+                <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">
+                    <i class="fas fa-brain"></i>&nbsp;Predicted weakness categories via <strong style="color:#60a5fa;">${methodLabel}</strong>:
+                </div>
+                <div>${cweList}</div>
+                ${cweAnalysis.summary ? `<p style="margin-top:8px; font-size:12px; color:#64748b;">${escapeHtml(cweAnalysis.summary)}</p>` : ''}
+            </div>`;
+        }
+
+        listEl.innerHTML = cweBanner;
         cpeInfoEl.style.display = 'none';
         cpeBadge.style.display  = 'none';
+
+        // Render CVEs from CWE prediction if available
+        if (vulns.length === 0) {
+            statsEl.style.display = 'none';
+            return;
+        }
+
+        // Show stats + CVE list below the CWE banner
+        const sev = stats.by_severity || {};
+        document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
+        document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
+        document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
+        document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
+        document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
+        document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
+        statsEl.style.display = 'grid';
+
+        const header = document.createElement('h3');
+        header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
+        header.innerHTML = `<i class="fas fa-list"></i> CVEs matching predicted weaknesses
+            <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
+                (showing ${vulns.length} of ${stats.total_cves || vulns.length})
+            </span>`;
+        listEl.appendChild(header);
+        vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
         return;
     }
 
