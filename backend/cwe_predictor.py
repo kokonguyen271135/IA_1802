@@ -581,9 +581,8 @@ class CWEPredictor:
             kw_parts.append(vendor)
         if product and product.lower() != vendor.lower():
             kw_parts.append(product)
-        # Always anchor to Windows for PE executables if no specific product found
-        if not kw_parts and "PE" in file_type:
-            kw_parts.append("Windows")
+        # Only filter by keyword when we have a specific vendor/product;
+        # without it we leave keyword=None so NVD still returns CWE-matched CVEs
         keyword = " ".join(kw_parts) if kw_parts else None
         print(f"[CWE] NVD keyword filter: {keyword!r}")
 
