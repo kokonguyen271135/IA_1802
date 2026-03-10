@@ -585,6 +585,28 @@ function renderComponents(components) {
 }
 
 // CVE section inside PE Analysis tab
+function _renderPECVEStats(stats, vulns, statsEl) {
+    const sev = stats.by_severity || {};
+    document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
+    document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
+    document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
+    document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
+    document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
+    document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
+    statsEl.style.display = 'grid';
+}
+
+function _renderPECVEList(listEl, vulns, stats, title) {
+    const header = document.createElement('h3');
+    header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
+    header.innerHTML = `<i class="fas fa-list"></i> ${title}
+        <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
+            (showing ${vulns.length} of ${stats.total_cves || vulns.length})
+        </span>`;
+    listEl.appendChild(header);
+    vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
+}
+
 function renderPECVEs(data) {
     const cpe         = data.cpe;
     const cpeInfo     = data.cpe_info || {};
@@ -599,11 +621,10 @@ function renderPECVEs(data) {
 
     // --- No CPE extracted ---
     if (!cpe) {
-        const cweAnalysis = data.cwe_analysis || {};
+        const cweAnalysis   = data.cwe_analysis || {};
         const predictedCWEs = cweAnalysis.predicted_cwes || [];
-        const cweSource = cweAnalysis.prediction_method || '';
+        const cweSource     = cweAnalysis.prediction_method || '';
 
-        // Show CWE banner
         const reason = cpeError
             ? `CPE extraction failed: ${cpeError}`
             : (cpeInfo.error || 'Could not identify software version from this file.');
@@ -616,7 +637,7 @@ function renderPECVEs(data) {
             const methodLabel = cweSource === 'secbert_cwe_classifier' ? 'SecBERT ML' : 'Rule-based';
             const cweList = predictedCWEs.slice(0, 5).map(c => {
                 const confPct = Math.round((c.confidence || 0) * 100);
-                const color = c.label === 'HIGH' ? '#ef4444' : c.label === 'MEDIUM' ? '#f59e0b' : '#6b7280';
+                const color = CODEBERT_SEVERITY_COLORS[c.label] || CODEBERT_SEVERITY_COLORS.MINIMAL;
                 return `<span style="display:inline-block; margin:3px 4px; padding:3px 8px; border-radius:4px;
                     border:1px solid ${color}; color:${color}; font-size:12px; font-weight:600;">
                     ${escapeHtml(c.cwe_id)} ${escapeHtml(c.name)} (${confPct}%)
@@ -636,30 +657,13 @@ function renderPECVEs(data) {
         cpeInfoEl.style.display = 'none';
         cpeBadge.style.display  = 'none';
 
-        // Render CVEs from CWE prediction if available
         if (vulns.length === 0) {
             statsEl.style.display = 'none';
             return;
         }
 
-        // Show stats + CVE list below the CWE banner
-        const sev = stats.by_severity || {};
-        document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
-        document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
-        document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
-        document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
-        document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
-        document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
-        statsEl.style.display = 'grid';
-
-        const header = document.createElement('h3');
-        header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
-        header.innerHTML = `<i class="fas fa-list"></i> CVEs matching predicted weaknesses
-            <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
-                (showing ${vulns.length} of ${stats.total_cves || vulns.length})
-            </span>`;
-        listEl.appendChild(header);
-        vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
+        _renderPECVEStats(stats, vulns, statsEl);
+        _renderPECVEList(listEl, vulns, stats, 'CVEs matching predicted weaknesses');
         return;
     }
 
@@ -686,14 +690,7 @@ function renderPECVEs(data) {
     }
 
     // --- Stats ---
-    const sev = stats.by_severity || {};
-    document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
-    document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
-    document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
-    document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
-    document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
-    document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
-    statsEl.style.display = 'grid';
+    _renderPECVEStats(stats, vulns, statsEl);
 
     // --- AI Analysis panel (PE tab) ---
     renderAiPanel(data.ai_analysis, 'peAiPanel', 'peAiOverallRiskBadge',
@@ -701,17 +698,7 @@ function renderPECVEs(data) {
 
     // --- CVE list ---
     listEl.innerHTML = '';
-    const header = document.createElement('h3');
-    header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
-    header.innerHTML = `<i class="fas fa-list"></i> Vulnerabilities
-        <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
-            (showing ${vulns.length} of ${stats.total_cves || vulns.length})
-        </span>`;
-    listEl.appendChild(header);
-
-    vulns.forEach(cve => {
-        listEl.appendChild(createCVEItem(cve));
-    });
+    _renderPECVEList(listEl, vulns, stats, 'Vulnerabilities');
 }
 
 // ============================================================
