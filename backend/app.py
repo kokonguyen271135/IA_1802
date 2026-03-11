@@ -293,8 +293,8 @@ def _compute_ai_risk_score(cves: list) -> dict | None:
 
     # CVSS component (average of all CVEs found)
     avg_cvss = sum(cvss_scores) / len(cvss_scores) if cvss_scores else 5.0
-    cvss_component      = (avg_cvss / 10.0) * 40   # max 40 pts
-    relevance_component = weighted_rel * 60          # max 60 pts
+    cvss_component      = (avg_cvss / 10.0) * 20   # max 20 pts  (CVSS is a bonus)
+    relevance_component = weighted_rel * 80          # max 80 pts  (relevance drives the level)
     score = min(100, round(cvss_component + relevance_component))
 
     # Build human-readable factors from AI label distribution
