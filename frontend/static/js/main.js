@@ -361,11 +361,7 @@ function createCVEItem(cve) {
                       ((cve.description || '').length > 250 ? '...' : '');
 
     // ── AI Relevance badges ───────────────────────────────────────
-    const secbertBadge = buildRelevanceBadge(
-        cve.secbert_relevance,
-        'SecBERT',
-        cve.secbert_relevance ? (cve.secbert_relevance.model || 'SecBERT').split('/').pop() : ''
-    );
+    const secbertBadge = ''; // hidden for now
     const ctxBadge = buildRelevanceBadge(
         cve.contextual_relevance,
         'Context',
@@ -1112,7 +1108,8 @@ function showCVEDetailModal(cve) {
     if (hasSec || hasCtx) {
         aiSection.style.display = 'block';
         let badgesHtml = '';
-        if (hasSec) {
+        // SecBERT badge hidden for now
+        if (false && hasSec) {
             badgesHtml += buildRelevanceBadge(hasSec, 'SecBERT Semantic', hasSec.model || 'SecBERT');
             badgesHtml += `<span style="margin-left:12px; color:#6b7280; font-size:13px;">
                 score: ${hasSec.score.toFixed(4)}
