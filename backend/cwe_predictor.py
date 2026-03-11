@@ -503,6 +503,274 @@ class CWEPredictor:
         ml_status = "ML model loaded" if self._classifier.is_available() else "rule-based fallback"
         print(f"[CWE Predictor] Initialized ({ml_status})")
 
+    # ── Behavior → keywords mapping for CVE relevance scoring ─────────────────
+    _BEHAVIOR_KEYWORDS: dict[str, list[str]] = {
+        "process_injection":    ["injection", "process", "memory", "shellcode",
+                                  "remote thread", "dll inject", "hollowing"],
+        "code_execution":       ["execution", "execute", "shell", "command",
+                                  "arbitrary code", "rce", "remote code"],
+        "network_communication":["network", "remote", "socket", "http", "download",
+                                  "c2", "command and control", "backdoor", "trojan"],
+        "privilege_escalation": ["privilege", "elevation", "token", "admin",
+                                  "local privilege", "escalat"],
+        "keylogging":           ["keylog", "keystroke", "hook", "input capture"],
+        "registry_manipulation":["registry", "regedit", "hklm", "hkcu", "regkey"],
+        "cryptography":         ["encrypt", "decrypt", "crypto", "ransom",
+                                  "ransomware", "cipher"],
+        "anti_debugging":       ["debug", "sandbox", "evasion", "anti-analysis",
+                                  "obfuscat", "packer", "packed"],
+        "service_manipulation": ["service", "daemon", "scm", "persistence",
+                                  "startup", "autorun"],
+        "dynamic_loading":      ["dynamic", "loadlibrary", "reflective", "loader"],
+    }
+
+    # Terms that appear only in web/scripting CVEs — penalize if present without
+    # any compensating Windows/PE signals
+    _WEB_ONLY_TERMS: list[str] = [
+        "php", "javascript", "html", "css", "xss", "cross-site",
+        "wordpress", "joomla", "drupal", "magento", "typo3",
+        "web browser", "firefox", "chrome", "safari", "internet explorer",
+        "ruby on rails", "django", "laravel", "asp.net web",
+        "sql injection via", "stored xss", "reflected xss",
+    ]
+
+    # Terms that indicate relevance to Windows PE / native executables
+    _WINDOWS_TERMS: list[str] = [
+        "windows", "win32", "dll", "exe", "executable", "binary",
+        "kernel", "ntdll", "winsock", "winapi", "nt kernel",
+        "active directory", "registry", "com object", "service",
+        "device driver", "sys file", "heap", "stack overflow",
+        "buffer overflow", "memory corruption", "use-after-free",
+        "out-of-bounds", "privilege escalation", "elevation of privilege",
+    ]
+
+    def _score_relevance(
+        self,
+        cve: dict,
+        active_behaviors: list[str],
+        analysis: dict,
+    ) -> float:
+        """
+        Tính điểm liên quan giữa một CVE và PE file đang phân tích.
+
+        Trả về float; giá trị âm nghĩa là CVE gần như chắc chắn không liên quan.
+        """
+        desc = (cve.get("description") or "").lower()
+        score = 0.0
+
+        # ── 1. Windows / native binary signals (+) ────────────────────────────
+        win_hits = sum(1 for t in self._WINDOWS_TERMS if t in desc)
+        score += min(win_hits * 0.08, 0.30)
+
+        # ── 2. Behavior keyword match (+) ─────────────────────────────────────
+        for behavior in active_behaviors:
+            keywords = self._BEHAVIOR_KEYWORDS.get(behavior, [])
+            hits = sum(1 for k in keywords if k in desc)
+            if hits:
+                score += min(hits * 0.06, 0.12)   # max 0.12 per behavior
+
+        # ── 3. Web-only penalty (–) ───────────────────────────────────────────
+        web_hits = sum(1 for t in self._WEB_ONLY_TERMS if t in desc)
+        penalty  = min(web_hits * 0.12, 0.40)
+        score   -= penalty
+
+        # ── 4. High CVSS gets a small boost (+) ──────────────────────────────
+        cvss = cve.get("cvss_score", 0.0) or 0.0
+        if cvss >= 9.0:
+            score += 0.05
+        elif cvss >= 7.0:
+            score += 0.02
+
+        # ── 5. CPE platform filter (+) ────────────────────────────────────────
+        cpes = cve.get("cpes", [])
+        if cpes:
+            has_win_cpe = any(
+                "microsoft:windows" in c.lower() or ":o:" in c.lower()
+                for c in cpes
+            )
+            if has_win_cpe:
+                score += 0.15
+
+        return round(max(-1.0, min(1.0, score)), 4)
+
+    # ── Target software detection ─────────────────────────────────────────────
+    # DLL name (lowercase, no .dll) → (vendor_keyword, product_keyword)
+    _TARGET_DLL_MAP: dict[str, tuple[str, str]] = {
+        # Microsoft Office
+        "mso":            ("microsoft", "office"),
+        "vbe7":           ("microsoft", "office"),
+        "msword":         ("microsoft", "word"),
+        "excel":          ("microsoft", "excel"),
+        "msppt":          ("microsoft", "powerpoint"),
+        "outlook":        ("microsoft", "outlook"),
+        "winword":        ("microsoft", "word"),
+        # Internet Explorer / Edge
+        "mshtml":         ("microsoft", "internet explorer"),
+        "ieframe":        ("microsoft", "internet explorer"),
+        "jscript":        ("microsoft", "internet explorer"),
+        "edgehtml":       ("microsoft", "edge"),
+        # Adobe
+        "acrobat":        ("adobe", "acrobat"),
+        "acrord32":       ("adobe", "acrobat reader"),
+        "acroform":       ("adobe", "acrobat reader"),
+        "flash":          ("adobe", "flash player"),
+        "authplay":       ("adobe", "flash player"),
+        # Java
+        "jvm":            ("oracle", "java"),
+        "java":           ("oracle", "java"),
+        "javaw":          ("oracle", "java"),
+        # Browsers
+        "chrome":         ("google", "chrome"),
+        "xul":            ("mozilla", "firefox"),
+        # WinRAR / 7-Zip
+        "unrar":          ("rarlab", "winrar"),
+        "7z":             ("7-zip", "7-zip"),
+        # Specific Windows components commonly exploited
+        "win32k":         ("microsoft", "windows"),       # kernel graphics (EoP exploits)
+        "winspool":       ("microsoft", "windows print spooler"),  # PrintNightmare
+        "dnsapi":         ("microsoft", "windows dns"),   # DNS client exploits
+        "lsasrv":        ("microsoft", "windows"),        # credential access target
+    }
+
+    # (regex, vendor, product) — checked against registry key strings
+    _TARGET_REGISTRY_PATTERNS: list[tuple[str, str, str]] = [
+        (r"Software\\Microsoft\\Office",           "microsoft", "office"),
+        (r"Software\\Microsoft\\Word",             "microsoft", "word"),
+        (r"Software\\Microsoft\\Excel",            "microsoft", "excel"),
+        (r"Software\\Microsoft\\Outlook",          "microsoft", "outlook"),
+        (r"Software\\Microsoft\\Internet Explorer","microsoft", "internet explorer"),
+        (r"Software\\Microsoft\\Edge",             "microsoft", "edge"),
+        (r"Software\\Microsoft\\Windows NT",       "microsoft", "windows"),
+        (r"Software\\Adobe\\Acrobat",              "adobe", "acrobat"),
+        (r"Software\\Adobe.*Reader",               "adobe", "acrobat reader"),
+        (r"Software\\Adobe.*Flash",                "adobe", "flash player"),
+        (r"Software\\Google\\Chrome",              "google", "chrome"),
+        (r"Software\\Mozilla\\Firefox",            "mozilla", "firefox"),
+        (r"Software\\Oracle\\Java",                "oracle", "java"),
+        (r"Software\\JavaSoft",                    "oracle", "java"),
+        (r"Software\\RARLab",                      "rarlab", "winrar"),
+        (r"Software\\7-Zip",                       "7-zip", "7-zip"),
+    ]
+
+    # (regex, vendor, product) — checked against file path strings
+    _TARGET_PATH_PATTERNS: list[tuple[str, str, str]] = [
+        (r"Microsoft Office",                      "microsoft", "office"),
+        (r"Microsoft\\Word",                       "microsoft", "word"),
+        (r"Microsoft\\Excel",                      "microsoft", "excel"),
+        (r"Internet Explorer",                     "microsoft", "internet explorer"),
+        (r"\\Microsoft\\Edge",                     "microsoft", "edge"),
+        (r"Adobe\\Acrobat",                        "adobe", "acrobat"),
+        (r"Adobe.*Reader",                         "adobe", "acrobat reader"),
+        (r"Adobe.*Flash",                          "adobe", "flash player"),
+        (r"Google\\Chrome",                        "google", "chrome"),
+        (r"Mozilla Firefox",                       "mozilla", "firefox"),
+        (r"Oracle\\Java",                          "oracle", "java"),
+        (r"\\Java\\jre",                           "oracle", "java"),
+        (r"RARLab|WinRAR",                         "rarlab", "winrar"),
+        (r"7-Zip",                                 "7-zip", "7-zip"),
+        (r"Windows\\System32\\lsass",              "microsoft", "windows"),
+        (r"Windows\\System32\\spoolsv",            "microsoft", "windows print spooler"),
+    ]
+
+    # (regex, vendor, product) — checked against all printable strings
+    _TARGET_STRING_PATTERNS: list[tuple[str, str, str]] = [
+        (r"Microsoft\s+Office\s+\d+",              "microsoft", "office"),
+        (r"Microsoft\s+Word\s+\d+",                "microsoft", "word"),
+        (r"Microsoft\s+Excel\s+\d+",               "microsoft", "excel"),
+        (r"Internet Explorer\s+[\d\.]+",           "microsoft", "internet explorer"),
+        (r"Adobe\s+Acrobat\s+[\d\.]+",             "adobe", "acrobat"),
+        (r"Adobe\s+Reader\s+[\d\.]+",              "adobe", "acrobat reader"),
+        (r"Adobe\s+Flash\s+Player\s+[\d\.]+",      "adobe", "flash player"),
+        (r"Google\s+Chrome\s+[\d\.]+",             "google", "chrome"),
+        (r"Mozilla\s+Firefox\s+[\d\.]+",           "mozilla", "firefox"),
+        (r"Java\s+(?:Runtime|SE|JRE)\s+[\d\.]+",  "oracle", "java"),
+        (r"WinRAR\s+[\d\.]+",                      "rarlab", "winrar"),
+    ]
+
+    def _detect_target_software(self, analysis: dict) -> list[dict]:
+        """
+        Phát hiện phần mềm mà PE file này nhắm tới, dựa trên:
+          - DLL imports (độ tin cậy cao nhất)
+          - Registry key strings
+          - File path strings
+          - Chuỗi text có tên phần mềm cụ thể
+          - Components đã được detect sẵn bởi static_analyzer
+
+        Trả về list[{vendor, product, confidence, source}], sort theo confidence.
+        """
+        import re as _re
+        found: dict[tuple[str, str], dict] = {}  # (vendor, product) → best hit
+
+        def _register(vendor: str, product: str, confidence: float, source: str):
+            key = (vendor.lower(), product.lower())
+            existing = found.get(key)
+            if existing is None or confidence > existing["confidence"]:
+                found[key] = {
+                    "vendor":     vendor,
+                    "product":    product,
+                    "confidence": confidence,
+                    "source":     source,
+                }
+
+        # ── 1. DLL imports (highest confidence — direct dependency) ──────────
+        dlls = analysis.get("imports", {}).get("dlls", [])
+        dll_bases = set()
+        for d in dlls:
+            name = (d.get("name") or "").lower()
+            stem = _re.sub(r'\.(dll|exe|drv|sys|ocx)$', '', name)
+            dll_bases.add(stem)
+            # Also check stem with numeric suffixes stripped (e.g. msvcr100 → msvcr)
+            dll_bases.add(_re.sub(r'[\d]+$', '', stem))
+
+        for dll_key, (vendor, product) in self._TARGET_DLL_MAP.items():
+            if dll_key in dll_bases:
+                _register(vendor, product, 0.80, f"dll_import:{dll_key}.dll")
+
+        # ── 2. Registry key strings ──────────────────────────────────────────
+        reg_keys = analysis.get("strings", {}).get("Registry Keys", [])
+        for reg_str in reg_keys:
+            for pattern, vendor, product in self._TARGET_REGISTRY_PATTERNS:
+                if _re.search(pattern, reg_str, _re.IGNORECASE):
+                    _register(vendor, product, 0.70, f"registry:{reg_str[:60]}")
+
+        # ── 3. File path strings ─────────────────────────────────────────────
+        file_paths = analysis.get("strings", {}).get("File Paths", [])
+        for path_str in file_paths:
+            for pattern, vendor, product in self._TARGET_PATH_PATTERNS:
+                if _re.search(pattern, path_str, _re.IGNORECASE):
+                    _register(vendor, product, 0.60, f"filepath:{path_str[:60]}")
+
+        # ── 4. All printable strings — software name/version patterns ────────
+        all_text = " ".join(
+            s
+            for bucket in analysis.get("strings", {}).values()
+            for s in (bucket if isinstance(bucket, list) else [])
+        )
+        for pattern, vendor, product in self._TARGET_STRING_PATTERNS:
+            if _re.search(pattern, all_text, _re.IGNORECASE):
+                _register(vendor, product, 0.50, "string_match")
+
+        # ── 5. Components detected by static_analyzer (OpenSSL, Python, …) ──
+        for comp in analysis.get("components", []):
+            vendor  = comp.get("cpe_vendor", "")
+            product = comp.get("cpe_product", comp.get("name", ""))
+            if vendor and product:
+                _register(vendor, product, 0.65, f"component:{comp.get('source','')}")
+
+        # Filter out Windows-generic hits if more specific targets exist
+        results = sorted(found.values(), key=lambda x: x["confidence"], reverse=True)
+        has_specific = any(
+            r["product"] not in ("windows", "windows nt")
+            for r in results
+        )
+        if has_specific:
+            results = [
+                r for r in results
+                if r["product"] not in ("windows", "windows nt")
+            ]
+
+        return results
+
     def _predict_cwes(self, analysis: dict) -> tuple[list[dict], str]:
         """
         Predict CWEs — thử ML model trước, fallback rule-based.
@@ -568,49 +836,159 @@ class CWEPredictor:
         for p in predicted:
             print(f"      {p['cwe_id']} ({p['label']}, conf={p['confidence']:.2f}): {p['name']}")
 
-        # Step 2: Query NVD for top-K CWEs
+        # Step 2: Build keyword from PE context to narrow NVD results
+        pe_info   = analysis.get("pe_info", {})
+        cpe_info  = analysis.get("cpe_info", {})
+        # Prefer vendor/product from CPE extraction; fall back to PE metadata
+        vendor    = (cpe_info.get("vendor") or pe_info.get("company_name") or "").strip()
+        product   = (cpe_info.get("product") or pe_info.get("product_name") or "").strip()
+        file_type = analysis.get("file_type", "")
+
+        # Values that are useless as NVD search keywords
+        _JUNK = {"unknown", "n/a", "none", "na", "", "null"}
+
+        def _is_useful(s: str) -> bool:
+            """Return True only when s looks like a real vendor/product name."""
+            sl = s.lower()
+            if sl in _JUNK:
+                return False
+            # Reject strings that look like filenames / version strings
+            # e.g. "seb_3.9.0.787_setupbundle"
+            import re as _re
+            if _re.search(r'[\d]+\.[\d]+', sl):   # contains version number
+                return False
+            return True
+
+        kw_parts: list[str] = []
+        if _is_useful(vendor):
+            kw_parts.append(vendor)
+        if _is_useful(product) and product.lower() != vendor.lower():
+            kw_parts.append(product)
+        # Only filter by keyword when we have a real vendor/product;
+        # without it we leave keyword=None so NVD still returns CWE-matched CVEs
+        keyword = " ".join(kw_parts) if kw_parts else None
+        print(f"[CWE] NVD keyword filter: {keyword!r}")
+
+        # Step 3: Detect target software, then query NVD
         all_cves: list[dict] = []
         seen_ids: set[str]   = set()
 
-        for pred in predicted[:self.top_cwes]:
-            cwe_id = pred["cwe_id"]
-            print(f"[CWE] Querying NVD for {cwe_id} …")
-            cves = self.nvd_api.search_by_cwe(cwe_id,
-                                               max_results=self.max_cves_per_cwe)
+        targets = self._detect_target_software(analysis)
+        if targets:
+            print(f"[CWE] Detected {len(targets)} target software(s):")
+            for t in targets:
+                print(f"      {t['vendor']} {t['product']} "
+                      f"(conf={t['confidence']:.2f}, src={t['source']})")
+
+        def _add_cves(cves: list, pred: dict, target_kw: str | None = None):
             for cve in cves:
                 cid = cve.get("cve_id", "")
                 if cid and cid not in seen_ids:
                     seen_ids.add(cid)
-                    cve["matched_cwe"]             = cwe_id
-                    cve["matched_cwe_name"]        = pred["name"]
-                    cve["matched_cwe_confidence"]  = pred["confidence"]
+                    cve["matched_cwe"]            = pred["cwe_id"]
+                    cve["matched_cwe_name"]       = pred["name"]
+                    cve["matched_cwe_confidence"] = pred["confidence"]
+                    if target_kw:
+                        cve["matched_target"] = target_kw
                     all_cves.append(cve)
 
-        # Step 3: Sort — first by CWE confidence, then by CVSS score
+        if targets:
+            # Primary strategy: target software + CWE → highly specific CVEs
+            for target in targets[:2]:
+                target_kw = f"{target['vendor']} {target['product']}"
+                for pred in predicted[:self.top_cwes]:
+                    print(f"[CWE] Querying NVD: {pred['cwe_id']} + target={target_kw!r}")
+                    cves = self.nvd_api.search_by_cwe(
+                        pred["cwe_id"],
+                        max_results=self.max_cves_per_cwe,
+                        keyword=target_kw,
+                    )
+                    _add_cves(cves, pred, target_kw)
+
+                # If CWE+target returns nothing, try target keyword alone
+                if not any(c.get("matched_target") == target_kw for c in all_cves):
+                    print(f"[CWE] CWE+target empty — trying keyword-only: {target_kw!r}")
+                    cves = self.nvd_api.search_by_keyword(
+                        target_kw, max_results=self.max_cves_per_cwe
+                    )
+                    _add_cves(cves, predicted[0], target_kw)
+
+            # Supplemental: if still too few, add generic CWE results
+            if len(all_cves) < 5:
+                print("[CWE] Too few target CVEs — supplementing with generic CWE query")
+                for pred in predicted[:self.top_cwes]:
+                    cves = self.nvd_api.search_by_cwe(
+                        pred["cwe_id"],
+                        max_results=10,
+                        keyword=keyword,
+                    )
+                    _add_cves(cves, pred)
+        else:
+            # No target detected — fallback to CWE-only query (original behavior)
+            for pred in predicted[:self.top_cwes]:
+                cwe_id = pred["cwe_id"]
+                print(f"[CWE] No target detected — querying NVD for {cwe_id} …")
+                cves = self.nvd_api.search_by_cwe(
+                    cwe_id, max_results=self.max_cves_per_cwe, keyword=keyword
+                )
+                if not cves and keyword:
+                    print(f"[CWE] Keyword {keyword!r} returned 0 — retrying without keyword")
+                    cves = self.nvd_api.search_by_cwe(
+                        cwe_id, max_results=self.max_cves_per_cwe, keyword=None
+                    )
+                _add_cves(cves, pred)
+
+        # Step 4: Score relevance to PE behavior, filter and re-rank
+        by_category = analysis.get("imports", {}).get("by_category", {})
+        active_behaviors = [k for k, v in by_category.items() if v]
+
+        for cve in all_cves:
+            cve["relevance_score"] = self._score_relevance(
+                cve, active_behaviors, analysis
+            )
+
+        # Drop CVEs that are clearly unrelated to PE/Windows context
+        # (relevance_score < 0 means strong web-only signals, no PE signals)
+        all_cves = [c for c in all_cves if c["relevance_score"] >= 0.0]
+
+        # Sort by combined score: relevance (50%) + CWE confidence (30%) + CVSS (20%)
         all_cves.sort(
             key=lambda c: (
-                c.get("matched_cwe_confidence", 0),
-                c.get("cvss_score", 0),
+                c["relevance_score"] * 0.5
+                + c.get("matched_cwe_confidence", 0) * 0.3
+                + (c.get("cvss_score", 0) / 10.0) * 0.2
             ),
             reverse=True,
         )
 
-        # Step 4: Build human-readable summary
+        # Step 5: Build human-readable summary
         top_cwe_names = ", ".join(
             f"{p['cwe_id']} ({p['name']})" for p in predicted[:3]
         )
         risk_level = analysis.get("risk", {}).get("level", "UNKNOWN")
-        summary = (
-            f"No CPE identified. Based on behavioral analysis (risk level: {risk_level}), "
-            f"this binary exhibits characteristics associated with: {top_cwe_names}. "
-            f"Showing {len(all_cves)} CVEs matching these weakness categories."
-        )
+        if targets:
+            target_names = ", ".join(
+                f"{t['vendor']} {t['product']}" for t in targets[:2]
+            )
+            summary = (
+                f"No CPE identified. Detected target software: {target_names}. "
+                f"Based on behavioral analysis (risk: {risk_level}), "
+                f"weakness categories: {top_cwe_names}. "
+                f"Showing {len(all_cves[:20])} CVEs matched to target software."
+            )
+        else:
+            summary = (
+                f"No CPE or target software identified. "
+                f"Based on behavioral analysis (risk level: {risk_level}), "
+                f"this binary exhibits characteristics associated with: {top_cwe_names}. "
+                f"Showing {len(all_cves[:20])} CVEs matching these weakness categories."
+            )
 
         print(f"[CWE] Done — {len(all_cves)} unique CVEs from {len(predicted[:self.top_cwes])} CWE queries")
 
         return {
             "predicted_cwes":    predicted,
-            "cve_results":       all_cves[:50],
+            "cve_results":       all_cves[:20],
             "total_cves":        len(all_cves),
             "prediction_method": pred_method,
             "method":            "cwe_behavior_prediction",
