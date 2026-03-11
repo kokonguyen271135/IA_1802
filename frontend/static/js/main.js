@@ -525,7 +525,7 @@ function showPEError(msg) {
 // --- Render all results ---
 function renderPEResults(data) {
     // Primary: risk + CVEs + components + AI behavior
-    renderRiskBanner(data.risk);
+    renderRiskBanner(data.ai_risk || data.risk);
     renderPECVEs(data);
     renderComponents(data.components);
     renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);
@@ -876,6 +876,7 @@ function renderRiskBanner(risk) {
     const score   = risk.score || 0;
     const factors = risk.factors || [];
     const colors  = RISK_COLORS[level] || RISK_COLORS.CLEAN;
+    const isAI    = risk.method === 'ai_relevance';
 
     const banner = document.getElementById('riskBanner');
     banner.style.background   = colors.bg;
@@ -883,7 +884,9 @@ function renderRiskBanner(risk) {
     banner.style.color        = colors.text;
 
     document.getElementById('riskLevel').textContent = level;
-    document.getElementById('riskScore').textContent = `Risk Score: ${score} / 100`;
+    document.getElementById('riskScore').textContent = isAI
+        ? `AI Risk Score: ${score} / 100`
+        : `Risk Score: ${score} / 100`;
 
     const factorsEl = document.getElementById('riskFactors');
     factorsEl.innerHTML = factors.map(f => `<div class="risk-factor-item">&#8226; ${escapeHtml(f)}</div>`).join('');

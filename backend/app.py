@@ -259,6 +259,77 @@ def _resolve_cpe(cpe_info: dict, filename: str) -> tuple[str, str, str, str, dic
     return cpe, vendor, product, version, ai_cpe_result, sem_cpe_result
 
 
+def _compute_ai_risk_score(cves: list) -> dict | None:
+    """Compute a file-level risk score based on AI relevance/severity analysis of CVEs.
+
+    Returns a dict compatible with the heuristic ``risk`` object so the frontend
+    can display it without extra changes, or *None* when no AI data is available.
+    """
+    if not cves:
+        return None
+
+    relevance_scores: list[float] = []
+    cvss_scores: list[float] = []
+
+    for cve in cves:
+        rel = cve.get('relevance', {})
+        if rel and isinstance(rel.get('score'), (int, float)):
+            relevance_scores.append(float(rel['score']))
+        cvss = cve.get('cvss_score')
+        if cvss:
+            try:
+                cvss_scores.append(float(cvss))
+            except (ValueError, TypeError):
+                pass
+
+    if not relevance_scores:
+        return None
+
+    # Top-5 weighted relevance (harmonic-style weights so top CVE has most influence)
+    relevance_scores.sort(reverse=True)
+    top_rel = relevance_scores[:5]
+    weights = [1.0 / (i + 1) for i in range(len(top_rel))]
+    weighted_rel = sum(s * w for s, w in zip(top_rel, weights)) / sum(weights)
+
+    # CVSS component (average of all CVEs found)
+    avg_cvss = sum(cvss_scores) / len(cvss_scores) if cvss_scores else 5.0
+    cvss_component      = (avg_cvss / 10.0) * 40   # max 40 pts
+    relevance_component = weighted_rel * 60          # max 60 pts
+    score = min(100, round(cvss_component + relevance_component))
+
+    # Build human-readable factors from AI label distribution
+    label_counts: dict[str, int] = {}
+    for cve in cves:
+        lbl = cve.get('relevance', {}).get('label', '')
+        if lbl:
+            label_counts[lbl] = label_counts.get(lbl, 0) + 1
+
+    factors: list[str] = []
+    for lbl in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'MINIMAL'):
+        if label_counts.get(lbl, 0) > 0:
+            factors.append(f"{label_counts[lbl]} CVE(s) with {lbl} AI relevance")
+    if cvss_scores:
+        factors.append(f"Average CVSS score: {avg_cvss:.1f}")
+
+    if score >= 70:
+        level = 'CRITICAL'
+    elif score >= 40:
+        level = 'HIGH'
+    elif score >= 20:
+        level = 'MEDIUM'
+    elif score > 0:
+        level = 'LOW'
+    else:
+        level = 'CLEAN'
+
+    return {
+        'score':   score,
+        'level':   level,
+        'factors': factors or ['No AI relevance data available'],
+        'method':  'ai_relevance',
+    }
+
+
 def _enrich_cves(cves: list, software_analysis: dict | None = None) -> list:
     """Apply unified AI severity + relevance scoring to a CVE list."""
     if not cves:
@@ -329,6 +400,11 @@ def _analyze_pe(filepath: Path, filename: str):
             result['vulnerabilities'] = cves[:50]
             result['cve_statistics']  = stats
 
+            # AI-based file-level risk score (replaces heuristic banner)
+            ai_risk = _compute_ai_risk_score(cves)
+            if ai_risk:
+                result['ai_risk'] = ai_risk
+
             # Embedded component CVEs
             component_cves = _lookup_component_cves(result.get('components', []))
             if component_cves:
@@ -369,6 +445,11 @@ def _analyze_pe(filepath: Path, filename: str):
                 result['vulnerabilities'] = cwe_cves[:50]
                 result['cve_statistics']  = _calc_stats(cwe_cves)
                 result['cve_source']      = 'cwe_behavior_prediction'
+
+                # AI-based risk score from CWE-predicted CVEs
+                ai_risk = _compute_ai_risk_score(cwe_cves)
+                if ai_risk:
+                    result['ai_risk'] = ai_risk
 
         # AI static behavior (when no CVEs or high-risk file)
         risk_level = result.get('risk', {}).get('level', 'CLEAN')
