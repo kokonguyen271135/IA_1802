@@ -363,8 +363,7 @@ class NVDAPIv2:
             'cna': cve.get('sourceIdentifier', 'Unknown')
         }
     
-    def search_by_cwe(self, cwe_id: str, max_results: int = 20,
-                      keyword: str | None = None) -> list:
+    def search_by_cwe(self, cwe_id: str, max_results: int = 20, keyword: str | None = None) -> list:
         """
         Search CVEs by CWE ID — used by Hướng 3 (CWE behavior prediction).
 

@@ -1,0 +1,58 @@
+CWE Classifier (Fine-tuned SecBERT) - Training Report
+======================================================
+Base model       : jackaduma/SecBERT
+Task             : CWE Classification (20 classes)
+Device           : cuda (NVIDIA GeForce RTX 3050 Laptop GPU)
+
+Training samples : 18,989
+Validation samples: 2,520
+Test samples     : 3,788
+Training time    : 779.7s (13.0 min)
+
+Hyperparameters:
+  Epochs         : 3
+  Learning rate  : 2e-05
+  Batch size     : 16
+  Max length     : 256 tokens
+
+Test accuracy    : 0.8928 (89.28%)
+Test macro-F1    : 0.8929 (89.29%)
+
+Classes (20 CWEs):
+  CWE-79  (XSS), CWE-200 (Info Exposure), CWE-20  (Improper Input Validation),
+  CWE-119 (Buffer Overflow), CWE-264 (Permissions), CWE-22  (Path Traversal),
+  CWE-89  (SQL Injection), CWE-502 (Deserialization), CWE-287 (Authentication),
+  CWE-787 (OOB Write), CWE-798 (Hard-coded Credentials), CWE-94  (Code Injection),
+  CWE-399 (Resource Management), CWE-78  (OS Command Injection), CWE-306 (Missing Auth),
+  CWE-416 (Use After Free), CWE-125 (OOB Read), CWE-918 (SSRF),
+  CWE-352 (CSRF), CWE-362 (Race Condition)
+
+Classification Report:
+              precision    recall  f1-score   support
+
+      CWE-79     0.9730    0.9752    0.9741       444
+     CWE-200     0.9149    0.9223    0.9186       373
+      CWE-20     0.8086    0.7139    0.7583       367
+     CWE-119     0.8487    0.8214    0.8348       280
+     CWE-264     0.8592    0.7832    0.8194       226
+      CWE-22     0.9598    0.9641    0.9620       223
+      CWE-89     0.9909    1.0000    0.9954       218
+     CWE-502     0.9575    0.9807    0.9690       207
+     CWE-287     0.8735    0.8896    0.8815       163
+     CWE-787     0.8675    0.8675    0.8675       151
+     CWE-798     0.9732    0.9797    0.9764       148
+      CWE-94     0.6772    0.7698    0.7205       139
+     CWE-399     0.6839    0.7970    0.7361       133
+      CWE-78     0.8797    0.9435    0.9105       124
+     CWE-306     0.9120    0.9580    0.9344       119
+     CWE-416     0.9204    0.9204    0.9204       113
+     CWE-125     0.9252    0.9083    0.9167       109
+     CWE-918     0.8788    0.9667    0.9206        90
+     CWE-352     0.9512    0.8966    0.9231        87
+     CWE-362     0.9306    0.9054    0.9178        74
+
+    accuracy                         0.8928      3788
+   macro avg     0.8893    0.8982    0.8929      3788
+weighted avg     0.8938    0.8928    0.8925      3788
+
+Model saved to   : models/bert_cwe/

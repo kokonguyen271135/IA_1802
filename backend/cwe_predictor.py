@@ -487,6 +487,94 @@ class CWEPredictor:
             result['cwe_analysis'] = predictor.predict_and_fetch(pe_analysis)
     """
 
+    # ── Target software detection maps ────────────────────────────────────────
+
+    _TARGET_DLL_MAP: dict[str, tuple[str, str]] = {
+        "mso":        ("microsoft", "office"),
+        "vbe7":       ("microsoft", "office"),
+        "winword":    ("microsoft", "office"),
+        "excel":      ("microsoft", "office"),
+        "powerpnt":   ("microsoft", "office"),
+        "mshtml":     ("microsoft", "internet_explorer"),
+        "ieframe":    ("microsoft", "internet_explorer"),
+        "jscript":    ("microsoft", "internet_explorer"),
+        "jscript9":   ("microsoft", "internet_explorer"),
+        "acrobat":    ("adobe", "acrobat"),
+        "acrord32":   ("adobe", "acrobat_reader"),
+        "jvm":        ("oracle", "java"),
+        "java":       ("oracle", "java"),
+        "chrome":     ("google", "chrome"),
+        "xul":        ("mozilla", "firefox"),
+        "nss3":       ("mozilla", "firefox"),
+        "win32k":     ("microsoft", "windows"),
+        "winspool":   ("microsoft", "windows"),
+        "lsasrv":     ("microsoft", "windows"),
+        "ntdll":      ("microsoft", "windows"),
+        "kernelbase": ("microsoft", "windows"),
+        "advapi32":   ("microsoft", "windows"),
+        "flash":      ("adobe", "flash_player"),
+        "clr":        ("microsoft", "net_framework"),
+        "mscorlib":   ("microsoft", "net_framework"),
+    }
+
+    _TARGET_REGISTRY_PATTERNS: list[tuple[str, tuple[str, str]]] = [
+        (r"Software\\Microsoft\\Office",             ("microsoft", "office")),
+        (r"Software\\Adobe\\Acrobat",                ("adobe", "acrobat")),
+        (r"Software\\Adobe\\Adobe Acrobat",          ("adobe", "acrobat")),
+        (r"Software\\Google\\Chrome",                ("google", "chrome")),
+        (r"Software\\Mozilla\\Firefox",              ("mozilla", "firefox")),
+        (r"Software\\Oracle\\Java",                  ("oracle", "java")),
+        (r"Software\\Microsoft\\Internet Explorer",  ("microsoft", "internet_explorer")),
+        (r"Software\\Microsoft\\Windows NT",         ("microsoft", "windows")),
+        (r"Software\\Microsoft\\\.NETFramework",     ("microsoft", "net_framework")),
+    ]
+
+    _TARGET_PATH_PATTERNS: list[tuple[str, tuple[str, str]]] = [
+        (r"Microsoft\s+Office",         ("microsoft", "office")),
+        (r"Adobe\\Acrobat",             ("adobe", "acrobat")),
+        (r"Adobe\\Reader",              ("adobe", "acrobat_reader")),
+        (r"Google\\Chrome",             ("google", "chrome")),
+        (r"Mozilla\s+Firefox",          ("mozilla", "firefox")),
+        (r"Java\\jre",                  ("oracle", "java")),
+        (r"Internet\s+Explorer",        ("microsoft", "internet_explorer")),
+        (r"Microsoft\s+Visual\s+Studio",("microsoft", "visual_studio")),
+        (r"\\Windows\\System32",        ("microsoft", "windows")),
+    ]
+
+    _TARGET_STRING_PATTERNS: list[tuple[str, tuple[str, str]]] = [
+        (r"Microsoft\s+Office\s+\d+",       ("microsoft", "office")),
+        (r"Adobe\s+Acrobat\s+[\d\.]+",      ("adobe", "acrobat")),
+        (r"Adobe\s+Reader\s+[\d\.]+",       ("adobe", "acrobat_reader")),
+        (r"Google\s+Chrome\s+[\d\.]+",      ("google", "chrome")),
+        (r"Mozilla\s+Firefox\s+[\d\.]+",    ("mozilla", "firefox")),
+        (r"Java\(TM\)\s+SE",                ("oracle", "java")),
+        (r"Internet\s+Explorer\s+[\d\.]+",  ("microsoft", "internet_explorer")),
+    ]
+
+    _BEHAVIOR_KEYWORDS: dict[str, list[str]] = {
+        "Process Injection":     ["process injection", "memory", "dll injection", "shellcode"],
+        "Privilege Escalation":  ["privilege escalation", "elevation", "token", "admin"],
+        "Code Execution":        ["remote code execution", "arbitrary code", "rce"],
+        "Network Communication": ["network", "remote", "http", "ftp", "socket"],
+        "Cryptography":          ["encryption", "ransomware", "crypto", "cipher"],
+        "Registry Manipulation": ["registry", "regedit", "hklm", "hkcu"],
+        "Keylogging":            ["keylog", "credential", "password steal"],
+        "Anti-Debugging":        ["anti-debug", "sandbox evasion", "obfuscation"],
+    }
+
+    _WEB_ONLY_TERMS: list[str] = [
+        "php", "xss", "cross-site scripting", "wordpress", "drupal", "joomla",
+        "django", "ruby on rails", "laravel", "csrf", "cross-site request",
+        "http response splitting",
+    ]
+
+    _WINDOWS_TERMS: list[str] = [
+        "windows", "dll", "exe", "ntdll", "kernel32", "win32",
+        "buffer overflow", "heap overflow", "stack overflow",
+        "privilege escalation", "local privilege", "memory corruption",
+        "use after free", "arbitrary code execution", "remote code execution",
+    ]
+
     def __init__(self, nvd_api, max_cves_per_cwe: int = 20, top_cwes: int = 3):
         """
         Parameters
@@ -796,6 +884,115 @@ class CWEPredictor:
         rule_preds = predict_cwe(analysis, top_k=self.top_cwes + 2)
         return rule_preds, "rule_based"
 
+    def _detect_target_software(self, analysis: dict) -> list[dict]:
+        """
+        Detect target software from PE features (DLLs, registry/path strings, components).
+        Returns list of {vendor, product, confidence, source} sorted by confidence DESC.
+        """
+        import re
+        found: dict[tuple[str, str], dict] = {}
+
+        def _add(vendor: str, product: str, confidence: float, source: str) -> None:
+            key = (vendor, product)
+            if key not in found or found[key]["confidence"] < confidence:
+                found[key] = {"vendor": vendor, "product": product,
+                               "confidence": confidence, "source": source}
+
+        # 1. DLL imports
+        imports_raw = analysis.get("imports", {})
+        dll_names: list[str] = []
+        if isinstance(imports_raw, dict):
+            dll_names = list(imports_raw.get("by_dll", {}).keys())
+            if not dll_names:
+                for entry in imports_raw.get("functions", []):
+                    if isinstance(entry, dict) and entry.get("dll"):
+                        dll_names.append(entry["dll"])
+        for dll in dll_names:
+            base = dll.lower().replace(".dll", "").replace(".exe", "")
+            for key, vp in self._TARGET_DLL_MAP.items():
+                if key in base:
+                    _add(vp[0], vp[1], 0.80, f"DLL import: {dll}")
+                    break
+
+        # 2. Registry key strings
+        strings_all: list[str] = []
+        strings_data = analysis.get("strings", {})
+        if isinstance(strings_data, dict):
+            for v in strings_data.values():
+                if isinstance(v, list):
+                    strings_all.extend(str(x) for x in v)
+        for pattern, vp in self._TARGET_REGISTRY_PATTERNS:
+            for s in strings_all:
+                if re.search(pattern, s, re.IGNORECASE):
+                    _add(vp[0], vp[1], 0.70, f"Registry string: {s[:60]}")
+                    break
+
+        # 3. File path strings
+        for pattern, vp in self._TARGET_PATH_PATTERNS:
+            for s in strings_all:
+                if re.search(pattern, s, re.IGNORECASE):
+                    _add(vp[0], vp[1], 0.60, f"Path string: {s[:60]}")
+                    break
+
+        # 4. Generic string patterns
+        for pattern, vp in self._TARGET_STRING_PATTERNS:
+            for s in strings_all:
+                if re.search(pattern, s, re.IGNORECASE):
+                    _add(vp[0], vp[1], 0.50, f"String match: {s[:60]}")
+                    break
+
+        # 5. Components from static_analyzer
+        for comp in analysis.get("components", []):
+            v = comp.get("cpe_vendor", "")
+            p = comp.get("cpe_product", "")
+            if v and p:
+                _add(v, p, 0.65, f"Component: {comp.get('name', '')}")
+
+        results = sorted(found.values(), key=lambda x: -x["confidence"])
+
+        # If specific target found, push Windows-generic to back
+        specific = [r for r in results if r["product"] != "windows"]
+        if specific:
+            results = specific + [r for r in results if r["product"] == "windows"]
+
+        return results
+
+    def _score_relevance(self, cve: dict, active_behaviors: list[str], analysis: dict) -> float:
+        """
+        Score relevance of a CVE to the PE analysis context.
+        Returns float from -1.0 to 1.0.
+        """
+        desc = (cve.get("description") or "").lower()
+        score = 0.0
+
+        # Boost for Windows/native terms
+        for term in self._WINDOWS_TERMS:
+            if term in desc:
+                score += 0.15
+                break
+
+        # Boost for matching behavior keywords
+        for behavior in active_behaviors:
+            keywords = self._BEHAVIOR_KEYWORDS.get(behavior, [])
+            for kw in keywords:
+                if kw in desc:
+                    score += 0.10
+                    break
+
+        # Boost for Windows CPE
+        for cpe in (cve.get("cpe_list") or []):
+            if "microsoft:windows" in str(cpe).lower():
+                score += 0.20
+                break
+
+        # Penalize web-only terms
+        for term in self._WEB_ONLY_TERMS:
+            if term in desc:
+                score -= 0.30
+                break
+
+        return max(-1.0, min(1.0, score))
+
     def predict_and_fetch(self, analysis: dict) -> dict:
         """
         Main Hướng 3 entry point.
@@ -836,155 +1033,122 @@ class CWEPredictor:
         for p in predicted:
             print(f"      {p['cwe_id']} ({p['label']}, conf={p['confidence']:.2f}): {p['name']}")
 
-        # Step 2: Build keyword from PE context to narrow NVD results
-        pe_info   = analysis.get("pe_info", {})
-        cpe_info  = analysis.get("cpe_info", {})
-        # Prefer vendor/product from CPE extraction; fall back to PE metadata
-        vendor    = (cpe_info.get("vendor") or pe_info.get("company_name") or "").strip()
-        product   = (cpe_info.get("product") or pe_info.get("product_name") or "").strip()
-        file_type = analysis.get("file_type", "")
-
-        # Values that are useless as NVD search keywords
+        # Build keyword from PE context to filter NVD results
+        import re as _re
         _JUNK = {"unknown", "n/a", "none", "na", "", "null"}
 
         def _is_useful(s: str) -> bool:
-            """Return True only when s looks like a real vendor/product name."""
-            sl = s.lower()
-            if sl in _JUNK:
+            if s.lower() in _JUNK:
                 return False
-            # Reject strings that look like filenames / version strings
-            # e.g. "seb_3.9.0.787_setupbundle"
-            import re as _re
-            if _re.search(r'[\d]+\.[\d]+', sl):   # contains version number
+            if _re.search(r'\d+\.\d+', s.lower()):
                 return False
             return True
 
-        kw_parts: list[str] = []
+        cpe_info = analysis.get("cpe_info", {})
+        pe_info  = analysis.get("pe_info", {})
+        vendor   = (cpe_info.get("vendor") or pe_info.get("company_name") or "").strip()
+        product  = (cpe_info.get("product") or pe_info.get("product_name") or "").strip()
+        parts    = []
         if _is_useful(vendor):
-            kw_parts.append(vendor)
+            parts.append(vendor)
         if _is_useful(product) and product.lower() != vendor.lower():
-            kw_parts.append(product)
-        # Only filter by keyword when we have a real vendor/product;
-        # without it we leave keyword=None so NVD still returns CWE-matched CVEs
-        keyword = " ".join(kw_parts) if kw_parts else None
-        print(f"[CWE] NVD keyword filter: {keyword!r}")
+            parts.append(product)
+        kw_filter = " ".join(parts) if parts else None
+        if kw_filter:
+            print(f"[CWE] Keyword filter: '{kw_filter}'")
 
-        # Step 3: Detect target software, then query NVD
+        # Step 2: Detect target software from PE features
+        targets = self._detect_target_software(analysis)
+        if targets:
+            print(f"[CWE] Detected {len(targets)} target(s): " +
+                  ", ".join(f"{t['vendor']} {t['product']} (conf={t['confidence']:.2f})"
+                            for t in targets[:3]))
+
+        # Step 3: Query NVD
         all_cves: list[dict] = []
         seen_ids: set[str]   = set()
 
-        targets = self._detect_target_software(analysis)
-        if targets:
-            print(f"[CWE] Detected {len(targets)} target software(s):")
-            for t in targets:
-                print(f"      {t['vendor']} {t['product']} "
-                      f"(conf={t['confidence']:.2f}, src={t['source']})")
-
-        def _add_cves(cves: list, pred: dict, target_kw: str | None = None):
+        def _add_cves(cves: list[dict], cwe_id: str, pred: dict) -> None:
             for cve in cves:
                 cid = cve.get("cve_id", "")
                 if cid and cid not in seen_ids:
                     seen_ids.add(cid)
-                    cve["matched_cwe"]            = pred["cwe_id"]
+                    cve["matched_cwe"]            = cwe_id
                     cve["matched_cwe_name"]       = pred["name"]
                     cve["matched_cwe_confidence"] = pred["confidence"]
-                    if target_kw:
-                        cve["matched_target"] = target_kw
                     all_cves.append(cve)
 
         if targets:
-            # Primary strategy: target software + CWE → highly specific CVEs
+            # Query CWE + target keyword for top 2 targets × top 3 CWEs
             for target in targets[:2]:
-                target_kw = f"{target['vendor']} {target['product']}"
-                for pred in predicted[:self.top_cwes]:
-                    print(f"[CWE] Querying NVD: {pred['cwe_id']} + target={target_kw!r}")
-                    cves = self.nvd_api.search_by_cwe(
-                        pred["cwe_id"],
-                        max_results=self.max_cves_per_cwe,
-                        keyword=target_kw,
-                    )
-                    _add_cves(cves, pred, target_kw)
+                target_kw = f"{target['vendor']} {target['product']}".replace("_", " ")
+                for pred in predicted[:3]:
+                    cwe_id = pred["cwe_id"]
+                    print(f"[CWE] Querying NVD: {cwe_id} + '{target_kw}' …")
+                    cves = self.nvd_api.search_by_cwe(cwe_id,
+                                                       max_results=self.max_cves_per_cwe,
+                                                       keyword=target_kw)
+                    if not cves:
+                        print(f"[CWE] CWE+target returned 0 — trying keyword only: '{target_kw}'")
+                        cves = self.nvd_api.search_by_keyword(target_kw,
+                                                              max_results=self.max_cves_per_cwe)
+                    _add_cves(cves, cwe_id, pred)
 
-                # If CWE+target returns nothing, try target keyword alone
-                if not any(c.get("matched_target") == target_kw for c in all_cves):
-                    print(f"[CWE] CWE+target empty — trying keyword-only: {target_kw!r}")
-                    cves = self.nvd_api.search_by_keyword(
-                        target_kw, max_results=self.max_cves_per_cwe
-                    )
-                    _add_cves(cves, predicted[0], target_kw)
-
-            # Supplemental: if still too few, add generic CWE results
+            # Supplement with generic CWE queries if < 5 CVEs
             if len(all_cves) < 5:
-                print("[CWE] Too few target CVEs — supplementing with generic CWE query")
+                print(f"[CWE] Only {len(all_cves)} CVEs — supplementing with generic CWE queries")
                 for pred in predicted[:self.top_cwes]:
-                    cves = self.nvd_api.search_by_cwe(
-                        pred["cwe_id"],
-                        max_results=10,
-                        keyword=keyword,
-                    )
-                    _add_cves(cves, pred)
+                    cwe_id = pred["cwe_id"]
+                    cves = self.nvd_api.search_by_cwe(cwe_id,
+                                                       max_results=self.max_cves_per_cwe,
+                                                       keyword=None)
+                    _add_cves(cves, cwe_id, pred)
         else:
-            # No target detected — fallback to CWE-only query (original behavior)
+            # No target detected: fallback CWE-only
             for pred in predicted[:self.top_cwes]:
                 cwe_id = pred["cwe_id"]
-                print(f"[CWE] No target detected — querying NVD for {cwe_id} …")
-                cves = self.nvd_api.search_by_cwe(
-                    cwe_id, max_results=self.max_cves_per_cwe, keyword=keyword
-                )
-                if not cves and keyword:
-                    print(f"[CWE] Keyword {keyword!r} returned 0 — retrying without keyword")
-                    cves = self.nvd_api.search_by_cwe(
-                        cwe_id, max_results=self.max_cves_per_cwe, keyword=None
-                    )
-                _add_cves(cves, pred)
+                print(f"[CWE] Querying NVD for {cwe_id} …")
+                cves = self.nvd_api.search_by_cwe(cwe_id,
+                                                   max_results=self.max_cves_per_cwe,
+                                                   keyword=kw_filter)
+                if not cves and kw_filter:
+                    print(f"[CWE] Keyword {kw_filter!r} returned 0 — retrying without keyword")
+                    cves = self.nvd_api.search_by_cwe(cwe_id,
+                                                       max_results=self.max_cves_per_cwe,
+                                                       keyword=None)
+                _add_cves(cves, cwe_id, pred)
 
-        # Step 4: Score relevance to PE behavior, filter and re-rank
-        by_category = analysis.get("imports", {}).get("by_category", {})
-        active_behaviors = [k for k, v in by_category.items() if v]
-
+        # Step 4: Relevance scoring + filtering
+        active_behaviors = list(analysis.get("imports", {}).get("by_category", {}).keys())
         for cve in all_cves:
-            cve["relevance_score"] = self._score_relevance(
-                cve, active_behaviors, analysis
-            )
+            cve["_relevance_score"] = self._score_relevance(cve, active_behaviors, analysis)
 
-        # Drop CVEs that are clearly unrelated to PE/Windows context
-        # (relevance_score < 0 means strong web-only signals, no PE signals)
-        all_cves = [c for c in all_cves if c["relevance_score"] >= 0.0]
+        all_cves = [c for c in all_cves if c.get("_relevance_score", 0) >= 0]
 
-        # Sort by combined score: relevance (50%) + CWE confidence (30%) + CVSS (20%)
         all_cves.sort(
             key=lambda c: (
-                c["relevance_score"] * 0.5
+                c.get("_relevance_score", 0) * 0.5
                 + c.get("matched_cwe_confidence", 0) * 0.3
-                + (c.get("cvss_score", 0) / 10.0) * 0.2
+                + (c.get("cvss_score") or 0) / 10 * 0.2
             ),
             reverse=True,
         )
 
-        # Step 5: Build human-readable summary
+        # Step 5: Build summary
         top_cwe_names = ", ".join(
             f"{p['cwe_id']} ({p['name']})" for p in predicted[:3]
         )
-        risk_level = analysis.get("risk", {}).get("level", "UNKNOWN")
+        risk_level  = analysis.get("risk", {}).get("level", "UNKNOWN")
+        target_info = ""
         if targets:
-            target_names = ", ".join(
-                f"{t['vendor']} {t['product']}" for t in targets[:2]
-            )
-            summary = (
-                f"No CPE identified. Detected target software: {target_names}. "
-                f"Based on behavioral analysis (risk: {risk_level}), "
-                f"weakness categories: {top_cwe_names}. "
-                f"Showing {len(all_cves[:20])} CVEs matched to target software."
-            )
-        else:
-            summary = (
-                f"No CPE or target software identified. "
-                f"Based on behavioral analysis (risk level: {risk_level}), "
-                f"this binary exhibits characteristics associated with: {top_cwe_names}. "
-                f"Showing {len(all_cves[:20])} CVEs matching these weakness categories."
-            )
+            target_info = f" Targeting: {targets[0]['vendor']} {targets[0]['product']}.".replace("_", " ")
+        summary = (
+            f"No CPE identified. Based on behavioral analysis (risk level: {risk_level}), "
+            f"this binary exhibits characteristics associated with: {top_cwe_names}.{target_info} "
+            f"Showing {min(len(all_cves), 20)} CVEs matching these weakness categories."
+        )
 
-        print(f"[CWE] Done — {len(all_cves)} unique CVEs from {len(predicted[:self.top_cwes])} CWE queries")
+        print(f"[CWE] Done — {len(all_cves)} unique CVEs from CWE+target queries")
 
         return {
             "predicted_cwes":    predicted,
@@ -993,4 +1157,5 @@ class CWEPredictor:
             "prediction_method": pred_method,
             "method":            "cwe_behavior_prediction",
             "summary":           summary,
+            "detected_targets":  targets,
         }

@@ -1,0 +1,79 @@
+{
+  "test_samples": 8226,
+  "label_order": [
+    "CRITICAL",
+    "HIGH",
+    "MEDIUM",
+    "LOW"
+  ],
+  "models": [
+    {
+      "accuracy": 0.9813,
+      "macro_f1": 0.9813,
+      "weighted_f1": 0.9812,
+      "per_class": {
+        "CRITICAL": {
+          "precision": 0.9855,
+          "recall": 0.999,
+          "f1": 0.9922,
+          "support": 2035
+        },
+        "HIGH": {
+          "precision": 0.9725,
+          "recall": 0.9661,
+          "f1": 0.9693,
+          "support": 2121
+        },
+        "MEDIUM": {
+          "precision": 0.9756,
+          "recall": 0.9612,
+          "f1": 0.9683,
+          "support": 2035
+        },
+        "LOW": {
+          "precision": 0.9917,
+          "recall": 0.9995,
+          "f1": 0.9956,
+          "support": 2035
+        }
+      },
+      "inference_ms_per_sample": 106.579,
+      "model": "Fine-tuned BERT (jackaduma/SecBERT)",
+      "train_accuracy": 0.9813,
+      "train_macro_f1": 0.9813
+    },
+    {
+      "accuracy": 0.2668,
+      "macro_f1": 0.1781,
+      "weighted_f1": 0.1769,
+      "per_class": {
+        "CRITICAL": {
+          "precision": 0.2632,
+          "recall": 0.8865,
+          "f1": 0.4058,
+          "support": 2035
+        },
+        "HIGH": {
+          "precision": 0.2447,
+          "recall": 0.0382,
+          "f1": 0.0661,
+          "support": 2121
+        },
+        "MEDIUM": {
+          "precision": 0.2393,
+          "recall": 0.0521,
+          "f1": 0.0856,
+          "support": 2035
+        },
+        "LOW": {
+          "precision": 0.3417,
+          "recall": 0.1002,
+          "f1": 0.155,
+          "support": 2035
+        }
+      },
+      "inference_ms_per_sample": 149.626,
+      "model": "Zero-Shot NLI (BART-MNLI)"
+    }
+  ]
+}

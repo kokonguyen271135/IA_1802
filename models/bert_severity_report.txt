@@ -1,0 +1,36 @@
+  CVE Severity Classifier (Fine-tuned SecBERT) - Training Report
+  ==============================================================
+  Base model       : jackaduma/SecBERT
+  Task             : CVE Severity Classification (4 classes)
+  Device           : cuda (NVIDIA GeForce RTX 3050 Laptop GPU)
+
+  Training samples : 41,153
+  Validation samples: 5,485
+  Test samples     : 8,226
+  Training time    : 1,641.2s (27.4 min)
+
+  Hyperparameters:
+    Epochs         : 3
+    Learning rate  : 2e-05
+    Batch size     : 16
+    Max length     : 256 tokens
+    Class weights  : CRITICAL=1.011  HIGH=0.970  MEDIUM=1.011  LOW=1.011
+
+  Test accuracy    : 0.9813 (98.13%)
+  Test macro-F1    : 0.9813 (98.13%)
+
+  Classification Report:
+                precision    recall  f1-score   support
+
+      CRITICAL     0.9855    0.9990    0.9922      2035
+          HIGH     0.9725    0.9661    0.9693      2121
+        MEDIUM     0.9756    0.9612    0.9683      2035
+          LOW     0.9917    0.9995    0.9956      2035
+
+      accuracy                         0.9813      8226
+    macro avg     0.9813    0.9814    0.9813      8226
+  weighted avg     0.9812    0.9813    0.9812      8226
+
+  Inference speed  : 106.58 ms/sample
+
+  Model saved to   : models/bert_severity/

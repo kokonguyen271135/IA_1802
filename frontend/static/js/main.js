@@ -584,6 +584,29 @@ function renderComponents(components) {
         <div class="components-grid">${cards}</div>`;
 }
 
+// Helpers for renderPECVEs
+function _renderPECVEStats(stats, vulns, statsEl) {
+    const sev = stats.by_severity || {};
+    document.getElementById('peCVETotal').textContent    = stats.total_cves || vulns.length;
+    document.getElementById('peCVECritical').textContent = sev.CRITICAL || 0;
+    document.getElementById('peCVEHigh').textContent     = sev.HIGH     || 0;
+    document.getElementById('peCVEMedium').textContent   = sev.MEDIUM   || 0;
+    document.getElementById('peCVELow').textContent      = sev.LOW      || 0;
+    document.getElementById('peCVEAvg').textContent      = (stats.avg_cvss || 0).toFixed(1);
+    statsEl.style.display = 'grid';
+}
+
+function _renderPECVEList(listEl, vulns, stats, title) {
+    const header = document.createElement('h3');
+    header.style.cssText = 'margin-bottom:16px; color:#1f2937;';
+    header.innerHTML = `<i class="fas fa-list"></i> ${title}
+        <span style="font-size:13px; font-weight:400; color:#6b7280; margin-left:8px;">
+            (showing ${vulns.length} of ${stats.total_cves || vulns.length})
+        </span>`;
+    listEl.appendChild(header);
+    vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
+}
+
 // CVE section inside PE Analysis tab
 function _renderPECVEStats(stats, vulns, statsEl) {
     const sev = stats.by_severity || {};
@@ -628,42 +651,36 @@ function renderPECVEs(data) {
         const reason = cpeError
             ? `CPE extraction failed: ${cpeError}`
             : (cpeInfo.error || 'Could not identify software version from this file.');
-
-        let cweBanner = `<p style="color:#f59e0b; padding:10px 0;">
-            <i class="fas fa-exclamation-triangle"></i>&nbsp;${escapeHtml(reason)}
-        </p>`;
-
-        if (predictedCWEs.length > 0) {
-            const methodLabel = cweSource === 'secbert_cwe_classifier' ? 'SecBERT ML' : 'Rule-based';
-            const cweList = predictedCWEs.slice(0, 5).map(c => {
-                const confPct = Math.round((c.confidence || 0) * 100);
-                const color = CODEBERT_SEVERITY_COLORS[c.label] || CODEBERT_SEVERITY_COLORS.MINIMAL;
-                return `<span style="display:inline-block; margin:3px 4px; padding:3px 8px; border-radius:4px;
-                    border:1px solid ${color}; color:${color}; font-size:12px; font-weight:600;">
-                    ${escapeHtml(c.cwe_id)} ${escapeHtml(c.name)} (${confPct}%)
-                </span>`;
-            }).join('');
-
-            cweBanner += `<div style="background:#1e293b; border:1px solid #334155; border-radius:8px; padding:12px; margin-bottom:12px;">
-                <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">
-                    <i class="fas fa-brain"></i>&nbsp;Predicted weakness categories via <strong style="color:#60a5fa;">${methodLabel}</strong>:
-                </div>
-                <div>${cweList}</div>
-                ${cweAnalysis.summary ? `<p style="margin-top:8px; font-size:12px; color:#64748b;">${escapeHtml(cweAnalysis.summary)}</p>` : ''}
-            </div>`;
-        }
-
-        listEl.innerHTML = cweBanner;
         cpeInfoEl.style.display = 'none';
         cpeBadge.style.display  = 'none';
 
-        if (vulns.length === 0) {
-            statsEl.style.display = 'none';
-            return;
+        listEl.innerHTML = '';
+        const banner = document.createElement('p');
+        banner.style.cssText = 'color:#f59e0b; padding:10px;';
+        banner.innerHTML = `<i class="fas fa-exclamation-triangle"></i>&nbsp;${escapeHtml(reason)}`;
+        listEl.appendChild(banner);
+
+        // CWE prediction badges
+        const cwePredicted = (data.cwe_analysis && data.cwe_analysis.predicted_cwes) || [];
+        if (cwePredicted.length > 0) {
+            const badgeWrap = document.createElement('div');
+            badgeWrap.style.cssText = 'margin:8px 0 12px;';
+            badgeWrap.innerHTML = '<strong style="font-size:13px;">Predicted CWEs:</strong> ';
+            cwePredicted.forEach(c => {
+                const color = CODEBERT_SEVERITY_COLORS[c.label] || '#9ca3af';
+                badgeWrap.innerHTML += `<span style="display:inline-block; background:${color};
+                    color:#fff; border-radius:4px; padding:2px 8px; margin:2px; font-size:12px;">
+                    ${escapeHtml(c.cwe_id || c.label)}</span>`;
+            });
+            listEl.appendChild(badgeWrap);
         }
 
-        _renderPECVEStats(stats, vulns, statsEl);
-        _renderPECVEList(listEl, vulns, stats, 'Predicted CVEs');
+        if (vulns.length > 0) {
+            _renderPECVEStats(stats, vulns, statsEl);
+            _renderPECVEList(listEl, vulns, stats, 'Predicted CVEs');
+        } else {
+            statsEl.style.display = 'none';
+        }
         return;
     }
 
@@ -720,18 +737,13 @@ const CONFIDENCE_COLORS = {
     none:   '#9ca3af',
 };
 
-function renderCodeBERTAnalysis(cb, profileText) {
+function renderCodeBERTAnalysis(cb) {
     const card = document.getElementById('codebertCard');
     const secbertCard = document.getElementById('secbertProfileCard');
     if (!card) return;
 
-    // ── SecBERT profile text ──────────────────────────────────────
-    if (profileText && secbertCard) {
-        document.getElementById('secbertProfileText').textContent = profileText;
-        secbertCard.style.display = 'block';
-    } else if (secbertCard) {
-        secbertCard.style.display = 'none';
-    }
+    // ── SecBERT profile text (ẩn — profile quá generic, không hiển thị) ──
+    if (secbertCard) secbertCard.style.display = 'none';
 
     if (!cb || !cb.available) {
         card.style.display = 'none';
@@ -883,10 +895,9 @@ function renderRiskBanner(risk) {
     banner.style.borderColor  = colors.border;
     banner.style.color        = colors.text;
 
+    const isAI = risk.method === 'ai_relevance';
     document.getElementById('riskLevel').textContent = level;
-    document.getElementById('riskScore').textContent = isAI
-        ? `AI Risk Score: ${score} / 100`
-        : `Risk Score: ${score} / 100`;
+    document.getElementById('riskScore').textContent = isAI ? `AI Risk Score: ${score} / 100` : `Risk Score: ${score} / 100`;
 
     const factorsEl = document.getElementById('riskFactors');
     factorsEl.innerHTML = factors.map(f => `<div class="risk-factor-item">&#8226; ${escapeHtml(f)}</div>`).join('');

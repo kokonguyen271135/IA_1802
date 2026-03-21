@@ -38,6 +38,10 @@ desktop.ini
 models/bert_severity/
 models/*.faiss
 models/*.pkl
+# SecBERT CWE model large binaries (>100MB — GitHub limit)
+models/bert_cwe/**/*.safetensors
+models/bert_cwe/**/*.pt
+models/bert_cwe/model.safetensors
 # Keep evaluation reports and metadata
 !models/*.txt
 !models/*.json

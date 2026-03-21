@@ -60,7 +60,7 @@ app = Flask(
 )
 CORS(app)
 
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
 
 UPLOAD_DIR = BASE_DIR.parent / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -85,7 +85,7 @@ def init_app():
     print("=" * 70)
 
     # NVD API key (set here or via NVD_API_KEY env var)
-    API_KEY = "4a29ba81-21a1-4e9d-84ff-e806f576c061"
+    API_KEY = "c95dd30e-7d9f-48b7-b9b9-0e799b0cd859"
     api_key = API_KEY or os.getenv('NVD_API_KEY')
 
     if not api_key:
@@ -260,56 +260,34 @@ def _resolve_cpe(cpe_info: dict, filename: str) -> tuple[str, str, str, str, dic
 
 
 def _compute_ai_risk_score(cves: list) -> dict | None:
-    """Compute a file-level risk score based on AI relevance/severity analysis of CVEs.
-
-    Returns a dict compatible with the heuristic ``risk`` object so the frontend
-    can display it without extra changes, or *None* when no AI data is available.
-    """
+    """Compute AI-based risk score from enriched CVE relevance scores."""
     if not cves:
         return None
 
-    relevance_scores: list[float] = []
-    cvss_scores: list[float] = []
-
-    for cve in cves:
-        rel = cve.get('relevance', {})
-        if rel and isinstance(rel.get('score'), (int, float)):
-            relevance_scores.append(float(rel['score']))
-        cvss = cve.get('cvss_score')
-        if cvss:
-            try:
-                cvss_scores.append(float(cvss))
-            except (ValueError, TypeError):
-                pass
-
-    if not relevance_scores:
+    rel_scores = [
+        c.get('relevance', {}).get('score', 0)
+        for c in cves
+        if isinstance(c.get('relevance'), dict)
+    ]
+    if not rel_scores:
         return None
 
-    # Top-5 weighted relevance (harmonic-style weights so top CVE has most influence)
-    relevance_scores.sort(reverse=True)
-    top_rel = relevance_scores[:5]
-    weights = [1.0 / (i + 1) for i in range(len(top_rel))]
-    weighted_rel = sum(s * w for s, w in zip(top_rel, weights)) / sum(weights)
+    # Top-5 weighted relevance (harmonic-weight, normalized by theoretical max)
+    top5 = sorted(rel_scores, reverse=True)[:5]
+    n = len(top5)
+    harmonic_max = sum(1 / (i + 1) for i in range(n))  # e.g. 5 items → 2.283
+    raw_weighted = sum(s / (i + 1) for i, s in enumerate(top5))
+    weighted_rel = min(1.0, raw_weighted / harmonic_max) if harmonic_max else 0
 
-    # CVSS component (average of all CVEs found)
-    avg_cvss = sum(cvss_scores) / len(cvss_scores) if cvss_scores else 5.0
-    cvss_component      = (avg_cvss / 10.0) * 20   # max 20 pts  (CVSS is a bonus)
-    relevance_component = weighted_rel * 80          # max 80 pts  (relevance drives the level)
-    score = min(100, round(cvss_component + relevance_component))
+    # CVSS component (max 20 pts)  (CVSS is a bonus)
+    cvss_scores = [c.get('cvss_score') or 0 for c in cves]
+    avg_cvss = sum(cvss_scores) / len(cvss_scores) if cvss_scores else 0
+    cvss_component = (avg_cvss / 10) * 20
 
-    # Build human-readable factors from AI label distribution
-    label_counts: dict[str, int] = {}
-    for cve in cves:
-        lbl = cve.get('relevance', {}).get('label', '')
-        if lbl:
-            label_counts[lbl] = label_counts.get(lbl, 0) + 1
+    # Relevance component (max 80 pts)  (relevance drives the level)
+    rel_component = weighted_rel * 80
 
-    factors: list[str] = []
-    for lbl in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'MINIMAL'):
-        if label_counts.get(lbl, 0) > 0:
-            factors.append(f"{label_counts[lbl]} CVE(s) with {lbl} AI relevance")
-    if cvss_scores:
-        factors.append(f"Average CVSS score: {avg_cvss:.1f}")
+    score = min(100, round(cvss_component + rel_component))
 
     if score >= 70:
         level = 'CRITICAL'
@@ -322,12 +300,20 @@ def _compute_ai_risk_score(cves: list) -> dict | None:
     else:
         level = 'CLEAN'
 
-    return {
-        'score':   score,
-        'level':   level,
-        'factors': factors or ['No AI relevance data available'],
-        'method':  'ai_relevance',
-    }
+    # Factors
+    factors = []
+    for label in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'):
+        count = sum(
+            1 for c in cves
+            if isinstance(c.get('relevance'), dict)
+            and c['relevance'].get('label') == label
+        )
+        if count:
+            factors.append(f"{count} CVE(s) with {label} AI relevance")
+    if avg_cvss > 0:
+        factors.append(f"Average CVSS score: {avg_cvss:.1f}")
+
+    return {'score': score, 'level': level, 'factors': factors, 'method': 'ai_relevance'}
 
 
 def _enrich_cves(cves: list, software_analysis: dict | None = None) -> list:
@@ -380,10 +366,8 @@ def _analyze_pe(filepath: Path, filename: str):
         if cpe:
             print(f"[PE] Querying NVD: {cpe}")
             cves = nvd_api.search_by_cpe(cpe, max_results=50)
-            # Keyword fallback: CPE vendor name may differ from NVD (e.g.
-            # "simon_tatham" vs "putty").  If CPE lookup returns nothing, retry
-            # with "product version" keyword search before falling through to
-            # CWE prediction.
+            # Keyword fallback: nếu CPE trả về 0 (vendor mismatch),
+            # thử lại với keyword "product version"
             if not cves and product and version:
                 kw = f"{product} {version}".strip()
                 print(f"[PE] CPE returned 0 CVEs — retrying with keyword: {kw!r}")
@@ -396,6 +380,10 @@ def _analyze_pe(filepath: Path, filename: str):
 
             cves = _enrich_cves(cves, result)
             result['behavior_profile_text'] = ai_profile_text(result)
+
+            ai_risk = _compute_ai_risk_score(cves)
+            if ai_risk:
+                result['ai_risk'] = ai_risk
 
             result['vulnerabilities'] = cves[:50]
             result['cve_statistics']  = stats
@@ -442,6 +430,9 @@ def _analyze_pe(filepath: Path, filename: str):
             if cwe_result.get('cve_results'):
                 cwe_cves = cwe_result['cve_results']
                 cwe_cves = _enrich_cves(cwe_cves, result)
+                ai_risk = _compute_ai_risk_score(cwe_cves)
+                if ai_risk:
+                    result['ai_risk'] = ai_risk
                 result['vulnerabilities'] = cwe_cves[:50]
                 result['cve_statistics']  = _calc_stats(cwe_cves)
                 result['cve_source']      = 'cwe_behavior_prediction'
