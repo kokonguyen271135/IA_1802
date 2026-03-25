@@ -524,6 +524,78 @@ function showPEError(msg) {
 
 // --- Render all results ---
 // ============================================================
+// XGBOOST ML CLASSIFIER
+// ============================================================
+
+function renderMlClassifier(ml) {
+    const card = document.getElementById('mlClassifierCard');
+    if (!card) return;
+    if (!ml || !ml.success) { card.style.display = 'none'; return; }
+
+    card.style.display = 'block';
+
+    const COLORS = { MALICIOUS: '#dc2626', SUSPICIOUS: '#ea580c', CLEAN: '#16a34a' };
+    const verdict = ml.verdict || 'UNKNOWN';
+    const prob    = ml.probability || 0;
+    const color   = COLORS[verdict] || '#6b7280';
+
+    // Verdict badge
+    const badge = document.getElementById('mlVerdictBadge');
+    if (badge) {
+        badge.textContent = verdict;
+        badge.style.background = color;
+        badge.style.color = '#fff';
+    }
+
+    // Probability display
+    const probEl = document.getElementById('mlProbValue');
+    if (probEl) {
+        probEl.textContent = Math.round(prob * 100) + '%';
+        probEl.style.color = color;
+    }
+    const barEl = document.getElementById('mlProbBar');
+    if (barEl) {
+        barEl.style.width      = Math.round(prob * 100) + '%';
+        barEl.style.background = color;
+    }
+
+    // Top features (feature importance bars)
+    const featEl = document.getElementById('mlTopFeatures');
+    if (featEl && ml.top_features) {
+        const maxImp = Math.max(...ml.top_features.map(f => f.importance), 0.0001);
+        featEl.innerHTML = ml.top_features.slice(0, 8).map(f => {
+            const barW   = Math.round((f.importance / maxImp) * 100);
+            const active = f.value > 0 ? color : '#374151';
+            return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <span style="font-size:11px; color:#94a3b8; width:200px; white-space:nowrap;
+                    overflow:hidden; text-overflow:ellipsis; flex-shrink:0;">
+                    ${escapeHtml(f.feature)}</span>
+                <div style="flex:1; background:#1e293b; border-radius:3px; height:14px; overflow:hidden;">
+                    <div style="width:${barW}%; background:${active}; height:100%; border-radius:3px;"></div>
+                </div>
+                <span style="font-size:11px; color:#6b7280; width:36px; text-align:right; flex-shrink:0;">
+                    ${f.value}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // Model metadata row
+    const infoEl = document.getElementById('mlModelInfo');
+    if (infoEl && ml.model_info) {
+        const m = ml.model_info;
+        const chips = [
+            m.train_samples ? `Trained on ${m.train_samples.toLocaleString()} samples` : null,
+            m.val_auc       ? `Val AUC: ${m.val_auc}` : null,
+            m.data_source   ? `Data: ${m.data_source}` : null,
+            m.xgboost_version ? `XGBoost ${m.xgboost_version}` : null,
+        ].filter(Boolean);
+        infoEl.innerHTML = chips.map(c =>
+            `<span style="background:#1e293b; padding:2px 8px; border-radius:6px;">${escapeHtml(c)}</span>`
+        ).join('');
+    }
+}
+
+// ============================================================
 // AI BINARY CODE ANALYSIS (disassembly → Claude reads assembly)
 // ============================================================
 
@@ -801,6 +873,7 @@ function renderSecurityAssessment(mitigations, aiAssessment) {
 function renderPEResults(data) {
     // Primary: risk + CVEs + components + AI behavior
     renderRiskBanner(data.ai_risk || data.risk);
+    renderMlClassifier(data.ml_classification);
     renderAiCodeAnalysis(data.ai_code_analysis);
     renderSecurityAssessment(data.security_mitigations, data.ai_security_assessment);
     renderPECVEs(data);

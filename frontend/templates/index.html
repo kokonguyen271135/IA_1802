@@ -84,6 +84,47 @@
                         <div class="risk-factors" id="riskFactors"></div>
                     </div>
 
+                    <!-- XGBoost ML Classifier -->
+                    <div class="pe-card pe-card-full" id="mlClassifierCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-brain"></i> XGBoost ML Classifier
+                            <span style="font-size:12px; font-weight:400; color:#6b7280; margin-left:8px;">
+                                Phân loại malware bằng Machine Learning &middot; Offline &middot; No API key
+                            </span>
+                            <span class="ai-powered-tag" style="margin-left:10px; background:#1e3a5f;">XGBoost</span>
+                            <span id="mlVerdictBadge" style="
+                                margin-left:12px; padding:3px 12px; border-radius:12px;
+                                font-size:13px; font-weight:700;"></span>
+                        </h4>
+
+                        <!-- Probability gauge + feature importance -->
+                        <div style="display:grid; grid-template-columns:200px 1fr; gap:16px; align-items:start; margin-bottom:14px;">
+                            <div style="
+                                background:#0f172a; border:1px solid #1e3a5f; border-radius:10px;
+                                padding:16px; text-align:center;">
+                                <div style="font-size:11px; color:#6b7280; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">
+                                    P(Malicious)
+                                </div>
+                                <div id="mlProbValue" style="font-size:40px; font-weight:800; line-height:1; margin:8px 0;"></div>
+                                <div style="background:#1e293b; border-radius:4px; height:8px; overflow:hidden; margin-top:8px;">
+                                    <div id="mlProbBar" style="height:100%; border-radius:4px; transition:width .5s;"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px; color:#94a3b8; margin-bottom:8px; font-weight:600;">
+                                    Top Contributing Features (XGBoost Feature Importance)
+                                </div>
+                                <div id="mlTopFeatures"></div>
+                            </div>
+                        </div>
+
+                        <!-- Model info row -->
+                        <div id="mlModelInfo" style="
+                            display:flex; gap:10px; flex-wrap:wrap;
+                            font-size:11px; color:#475569; border-top:1px solid #1e293b;
+                            padding-top:10px;"></div>
+                    </div>
+
                     <!-- AI Binary Code Analysis (disassembly) -->
                     <div class="pe-card pe-card-full" id="aiCodeAnalysisCard" style="display:none;">
                         <h4>

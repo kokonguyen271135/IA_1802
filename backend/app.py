@@ -40,6 +40,7 @@ from cpe_semantic_matcher import (
     match_best as sem_match_best, is_available as sem_available,
 )
 from cwe_predictor import CWEPredictor
+from ml_classifier import get_classifier as get_ml_classifier
 
 # ── Unified AI pipeline (replaces individual model imports) ──────────────────
 from ai.severity_pipeline import (
@@ -443,7 +444,18 @@ def _analyze_pe(filepath: Path, filename: str):
                 if ai_risk:
                     result['ai_risk'] = ai_risk
 
-        # ── AI Binary Code Analysis — AI đọc assembly code thực của binary ──
+        # ── XGBoost ML Classifier — offline, no API key needed ──────────────
+        # Trained on PE feature vectors (entropy, imports, mitigations, etc.)
+        # Predicts P(malicious) + explains which features contributed most
+        clf = get_ml_classifier()
+        if clf.is_loaded():
+            print(f"[ML] Running XGBoost classifier...")
+            result['ml_classification'] = clf.predict(result)
+            prob = result['ml_classification'].get('probability', 0)
+            verd = result['ml_classification'].get('verdict', '?')
+            print(f"[ML] verdict={verd}  P(malicious)={prob:.3f}")
+
+        # ── AI Binary Code Analysis — Claude đọc assembly code thực của binary ──
         # Claude đọc disassembly thực → tìm vulnerability patterns trong code
         # Hoàn toàn độc lập với CVE database — phân tích logic của binary
         if ai_available() and result.get('disassembly', {}).get('available'):
