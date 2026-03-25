@@ -523,9 +523,189 @@ function showPEError(msg) {
 }
 
 // --- Render all results ---
+// ============================================================
+// SECURITY MITIGATIONS + AI COMPREHENSIVE ASSESSMENT
+// ============================================================
+
+const MITIGATION_LABELS = {
+    aslr:            { label: 'ASLR',             icon: 'fa-random' },
+    high_entropy_va: { label: 'High-Entropy VA',  icon: 'fa-random' },
+    dep_nx:          { label: 'DEP / NX',          icon: 'fa-ban' },
+    cfg:             { label: 'CFG',               icon: 'fa-shield-alt' },
+    safe_seh:        { label: 'SafeSEH',           icon: 'fa-layer-group' },
+    force_integrity: { label: 'Code Integrity',   icon: 'fa-lock' },
+    stack_canary:    { label: 'Stack Canary (GS)', icon: 'fa-fish' },
+    authenticode:    { label: 'Authenticode',      icon: 'fa-certificate' },
+    appcontainer:    { label: 'AppContainer',      icon: 'fa-box' },
+};
+
+const POSTURE_COLORS = {
+    STRONG:   { bg: '#065f46', border: '#059669', text: '#6ee7b7' },
+    MODERATE: { bg: '#78350f', border: '#d97706', text: '#fcd34d' },
+    WEAK:     { bg: '#7c2d12', border: '#ea580c', text: '#fdba74' },
+    CRITICAL: { bg: '#7f1d1d', border: '#dc2626', text: '#fca5a5' },
+};
+
+function renderSecurityAssessment(mitigations, aiAssessment) {
+    const card = document.getElementById('securityAssessmentCard');
+    if (!card) return;
+
+    // Need at least mitigation data to show anything
+    if (!mitigations || !mitigations.flags) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'block';
+
+    // ── Posture badge ──────────────────────────────────────────────────────
+    const postureLevel = mitigations.posture_level || 'UNKNOWN';
+    const postureScore = mitigations.posture_score || 0;
+    const badge = document.getElementById('postureScoreBadge');
+    const pc = POSTURE_COLORS[postureLevel] || { bg: '#1e293b', border: '#475569', text: '#94a3b8' };
+    if (badge) {
+        badge.textContent = `Security Posture: ${postureLevel} (${postureScore}/100)`;
+        badge.style.background  = pc.bg;
+        badge.style.border      = `1px solid ${pc.border}`;
+        badge.style.color       = pc.text;
+    }
+
+    // ── Mitigation flags grid ──────────────────────────────────────────────
+    const grid = document.getElementById('mitigationFlagsGrid');
+    if (grid) {
+        const flags = mitigations.flags || {};
+        grid.innerHTML = Object.entries(MITIGATION_LABELS).map(([key, meta]) => {
+            const present = flags[key];
+            const color = present ? '#065f46' : '#7f1d1d';
+            const border = present ? '#059669' : '#dc2626';
+            const textCol = present ? '#6ee7b7' : '#fca5a5';
+            const iconName = present ? 'fa-check-circle' : 'fa-times-circle';
+            return `<div style="
+                background:${color}; border:1px solid ${border}; border-radius:8px;
+                padding:8px 12px; text-align:center; font-size:12px;">
+                <i class="fas ${iconName}" style="color:${textCol}; margin-right:4px;"></i>
+                <span style="color:${textCol}; font-weight:600;">${meta.label}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Missing mitigations list ───────────────────────────────────────────
+    const missingSection = document.getElementById('missingMitigationsSection');
+    const missingList    = document.getElementById('missingMitigationsList');
+    const missing = mitigations.missing || [];
+    if (missingList && missing.length > 0) {
+        missingSection.style.display = 'block';
+        missingList.innerHTML = missing.map(m => {
+            const riskColor = m.risk === 'HIGH' ? '#f87171' : m.risk === 'MEDIUM' ? '#fbbf24' : '#6b7280';
+            return `<div style="
+                background:#111827; border-left:3px solid ${riskColor};
+                padding:10px 14px; margin-bottom:8px; border-radius:0 8px 8px 0;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                    <strong style="color:${riskColor};">${escapeHtml(m.name)}</strong>
+                    <span style="font-size:11px; color:#6b7280;">${escapeHtml(m.cwe || '')}</span>
+                    <span style="font-size:11px; padding:1px 6px; border-radius:8px;
+                                 background:${riskColor}22; color:${riskColor};">${m.risk}</span>
+                </div>
+                <div style="color:#9ca3af; font-size:13px; margin-bottom:4px;">${escapeHtml(m.description || '')}</div>
+                <div style="color:#6b7280; font-size:12px; font-style:italic;">${escapeHtml(m.impact || '')}</div>
+            </div>`;
+        }).join('');
+    } else if (missingSection) {
+        missingSection.style.display = 'none';
+    }
+
+    // ── AI Security Assessment panel ───────────────────────────────────────
+    const aiPanel = document.getElementById('aiSecurityAssessmentPanel');
+    if (!aiPanel) return;
+
+    if (!aiAssessment || !aiAssessment.success) {
+        aiPanel.style.display = 'none';
+        return;
+    }
+
+    aiPanel.style.display = 'block';
+
+    // Overall risk badge
+    const riskLabel = document.getElementById('aiOverallRiskLabel');
+    if (riskLabel) {
+        const r = aiAssessment.overall_risk || 'UNKNOWN';
+        const rColors = { CRITICAL:'#dc2626', HIGH:'#ea580c', MEDIUM:'#d97706', LOW:'#16a34a', CLEAN:'#059669' };
+        riskLabel.textContent = r;
+        riskLabel.style.background = rColors[r] || '#374151';
+    }
+
+    // Exploitability text
+    const expText = document.getElementById('aiExploitabilityText');
+    if (expText) expText.textContent = aiAssessment.exploitability_assessment || '';
+
+    // Behavioral summary
+    const behSummary = document.getElementById('aiBehavioralSummary');
+    if (behSummary) {
+        const profile = aiAssessment.behavioral_profile || '';
+        const summary = aiAssessment.behavioral_summary || '';
+        const profileColors = {
+            legitimate:         '#6ee7b7',
+            potentially_unwanted: '#fcd34d',
+            suspicious:         '#fdba74',
+            malware_like:       '#fca5a5',
+        };
+        const pColor = profileColors[profile] || '#9ca3af';
+        behSummary.innerHTML = `<span style="font-weight:700; color:${pColor}; margin-right:8px;">
+            [${escapeHtml(profile.toUpperCase().replace('_',' '))}]
+        </span>${escapeHtml(summary)}`;
+    }
+
+    // Attack surface list
+    const attackSurface = document.getElementById('aiAttackSurface');
+    if (attackSurface) {
+        const items = aiAssessment.attack_surface || [];
+        attackSurface.innerHTML = items.map(t =>
+            `<li style="margin-bottom:4px; font-size:13px; color:#e2e8f0;">${escapeHtml(t)}</li>`
+        ).join('') || '<li style="color:#6b7280;">None detected</li>';
+    }
+
+    // MITRE techniques
+    const mitreEl = document.getElementById('aiMitreTechniques');
+    if (mitreEl) {
+        const items = aiAssessment.mitre_techniques || [];
+        mitreEl.innerHTML = items.map(t =>
+            `<li style="margin-bottom:4px; font-size:13px; color:#e2e8f0;">${escapeHtml(t)}</li>`
+        ).join('') || '<li style="color:#6b7280;">None identified</li>';
+    }
+
+    // Remediation
+    const remEl = document.getElementById('aiRemediationPriority');
+    if (remEl) {
+        const items = aiAssessment.remediation_priority || [];
+        remEl.innerHTML = items.map((t, i) =>
+            `<li style="margin-bottom:4px; font-size:13px; color:#e2e8f0;">
+                <strong style="color:#34d399;">${i + 1}.</strong> ${escapeHtml(t)}
+            </li>`
+        ).join('') || '<li style="color:#6b7280;">No actions needed</li>';
+    }
+
+    // CWE findings
+    const cweSection = document.getElementById('aiCweFindings');
+    const cweList    = document.getElementById('aiCweList');
+    const cwes = aiAssessment.cwe_findings || [];
+    if (cweList && cwes.length > 0) {
+        cweSection.style.display = 'block';
+        cweList.innerHTML = cwes.map(cwe =>
+            `<span style="
+                background:#1e293b; border:1px solid #475569; color:#93c5fd;
+                padding:3px 10px; border-radius:12px; font-size:12px; font-family:monospace;">
+                ${escapeHtml(cwe)}
+            </span>`
+        ).join('');
+    } else if (cweSection) {
+        cweSection.style.display = 'none';
+    }
+}
+
 function renderPEResults(data) {
     // Primary: risk + CVEs + components + AI behavior
     renderRiskBanner(data.ai_risk || data.risk);
+    renderSecurityAssessment(data.security_mitigations, data.ai_security_assessment);
     renderPECVEs(data);
     renderComponents(data.components);
     renderCodeBERTAnalysis(data.codebert_analysis, data.behavior_profile_text);

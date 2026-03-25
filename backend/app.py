@@ -33,6 +33,7 @@ from static_analyzer     import PEStaticAnalyzer
 from package_analyzer    import PackageAnalyzer, PackageAnalyzer as _PKG
 from ai_analyzer         import (
     ai_match_cpe, ai_analyze_severity, ai_analyze_static_behavior,
+    ai_comprehensive_security_assessment,
     is_available as ai_available,
 )
 from cpe_semantic_matcher import (
@@ -442,7 +443,14 @@ def _analyze_pe(filepath: Path, filename: str):
                 if ai_risk:
                     result['ai_risk'] = ai_risk
 
-        # AI static behavior (when no CVEs or high-risk file)
+        # ── AI Comprehensive Security Assessment (runs for EVERY PE file) ────
+        # This is the primary AI contribution: synthesizes security mitigations,
+        # behavioral indicators, and artifacts into a holistic exploitability
+        # assessment — independent of whether CVEs were found in NVD.
+        if ai_available():
+            result['ai_security_assessment'] = ai_comprehensive_security_assessment(result)
+
+        # AI static behavior (legacy fallback: only when no CVEs or high-risk)
         risk_level = result.get('risk', {}).get('level', 'CLEAN')
         no_cves    = len(result.get('vulnerabilities', [])) == 0
         if ai_available() and (no_cves or risk_level in ('HIGH', 'CRITICAL')):

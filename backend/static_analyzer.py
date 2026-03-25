@@ -200,6 +200,8 @@ class PEStaticAnalyzer:
                 result['sections'] = self._analyze_sections(pe)
                 result['imports'] = self._analyze_imports(pe)
                 result['exports'] = self._analyze_exports(pe)
+                # 2b. Security mitigations (ASLR, DEP/NX, CFG, Stack Canary, etc.)
+                result['security_mitigations'] = self._analyze_security_mitigations(pe)
                 pe.close()
             except pefile.PEFormatError as e:
                 result['errors'].append(f'PE parse error: {str(e)}')
@@ -431,6 +433,172 @@ class PEStaticAnalyzer:
 
         return found
 
+    # -------------------------------------------------------------------------
+    # Security Mitigations Analysis
+    # Checks PE DllCharacteristics flags and import patterns for
+    # compiler/OS security protections. Missing mitigations represent
+    # concrete, measurable exploitability factors independent of CVE database.
+    # -------------------------------------------------------------------------
+
+    # DllCharacteristics flags
+    _DC_HIGH_ENTROPY_VA  = 0x0020  # 64-bit ASLR
+    _DC_DYNAMIC_BASE     = 0x0040  # ASLR
+    _DC_FORCE_INTEGRITY  = 0x0080  # Require signed images
+    _DC_NX_COMPAT        = 0x0100  # DEP / NX
+    _DC_NO_ISOLATION     = 0x0200  # No manifest isolation
+    _DC_NO_SEH           = 0x0400  # No structured exception handling
+    _DC_NO_BIND          = 0x0800  # Prevent IAT binding
+    _DC_APPCONTAINER     = 0x1000  # AppContainer (sandboxed)
+    _DC_WDM_DRIVER       = 0x2000  # WDM kernel driver
+    _DC_GUARD_CF         = 0x4000  # Control Flow Guard
+
+    def _analyze_security_mitigations(self, pe) -> dict:
+        """
+        Analyze PE security mitigations by inspecting DllCharacteristics,
+        import entries, and directory entries.
+
+        Returns a structured report of present/missing mitigations and
+        a 0-100 security posture score (100 = all protections present).
+        """
+        dc = pe.OPTIONAL_HEADER.DllCharacteristics
+
+        # ── Stack Canary: GS protection (/GS compiler flag) ─────────────────
+        # Compilers insert __security_check_cookie when /GS is active.
+        has_stack_canary = False
+        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+            for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                for imp in entry.imports:
+                    if imp.name and b'__security_check_cookie' in imp.name:
+                        has_stack_canary = True
+                        break
+                if has_stack_canary:
+                    break
+
+        # ── Authenticode digital signature ───────────────────────────────────
+        has_signature = (
+            hasattr(pe, 'DIRECTORY_ENTRY_SECURITY')
+            and len(pe.DIRECTORY_ENTRY_SECURITY) > 0
+        )
+
+        # ── Collect present mitigations ──────────────────────────────────────
+        flags = {
+            'aslr':             bool(dc & self._DC_DYNAMIC_BASE),
+            'high_entropy_va':  bool(dc & self._DC_HIGH_ENTROPY_VA),
+            'dep_nx':           bool(dc & self._DC_NX_COMPAT),
+            'cfg':              bool(dc & self._DC_GUARD_CF),
+            'safe_seh':         not bool(dc & self._DC_NO_SEH),
+            'force_integrity':  bool(dc & self._DC_FORCE_INTEGRITY),
+            'appcontainer':     bool(dc & self._DC_APPCONTAINER),
+            'stack_canary':     has_stack_canary,
+            'authenticode':     has_signature,
+        }
+
+        # ── Missing critical mitigations → concrete attack impact ────────────
+        missing = []
+
+        if not flags['aslr']:
+            missing.append({
+                'name':        'ASLR',
+                'cwe':         'CWE-119',
+                'risk':        'HIGH',
+                'description': 'Not compiled with /DYNAMICBASE — memory layout is fixed',
+                'impact':      (
+                    'Attacker can predict exact addresses of code/heap/stack. '
+                    'Reliable exploitation of ANY memory-corruption bug becomes trivial '
+                    'without needing an information-leak gadget first.'
+                ),
+            })
+
+        if not flags['dep_nx']:
+            missing.append({
+                'name':        'DEP / NX',
+                'cwe':         'CWE-693',
+                'risk':        'HIGH',
+                'description': 'Not compiled with /NXCOMPAT — stack/heap are executable',
+                'impact':      (
+                    'Shellcode can be placed in data or stack memory and executed directly. '
+                    'Classic stack-based buffer overflows (CWE-121) become immediately '
+                    'exploitable without ROP chains.'
+                ),
+            })
+
+        if not flags['stack_canary']:
+            missing.append({
+                'name':        'Stack Canary (GS)',
+                'cwe':         'CWE-121',
+                'risk':        'HIGH',
+                'description': 'Not compiled with /GS — no stack buffer overflow detection',
+                'impact':      (
+                    'Stack-based overflows can silently overwrite saved return addresses. '
+                    'Combined with missing DEP, this directly leads to code execution '
+                    'via a single overflow.'
+                ),
+            })
+
+        if not flags['cfg']:
+            missing.append({
+                'name':        'CFG (Control Flow Guard)',
+                'cwe':         'CWE-691',
+                'risk':        'MEDIUM',
+                'description': 'Not compiled with /guard:cf — indirect calls are unverified',
+                'impact':      (
+                    'Return-Oriented Programming (ROP) and Jump-Oriented Programming (JOP) '
+                    'attacks are feasible. Attacker can redirect execution to arbitrary '
+                    'gadgets by corrupting function pointers or vtables.'
+                ),
+            })
+
+        if not flags['safe_seh']:
+            missing.append({
+                'name':        'SafeSEH',
+                'cwe':         'CWE-755',
+                'risk':        'MEDIUM',
+                'description': 'Structured Exception Handler Overwrite Protection absent',
+                'impact':      (
+                    'SEH chains can be overwritten to hijack execution via exception '
+                    'handling (classic SEH-overwrite exploit technique).'
+                ),
+            })
+
+        if not flags['authenticode']:
+            missing.append({
+                'name':        'Authenticode Signature',
+                'cwe':         'CWE-345',
+                'risk':        'LOW',
+                'description': 'Binary carries no digital signature',
+                'impact':      (
+                    'Cannot cryptographically verify the publisher or detect tampering. '
+                    'Binary may be replaced with a trojanized version without detection.'
+                ),
+            })
+
+        # ── Posture score: weighted sum of critical protections ──────────────
+        weight_map = {
+            'aslr':         25,
+            'dep_nx':       25,
+            'stack_canary': 25,
+            'cfg':          15,
+            'authenticode': 10,
+        }
+        posture_score = sum(w for k, w in weight_map.items() if flags.get(k, False))
+
+        if posture_score >= 85:
+            posture_level = 'STRONG'
+        elif posture_score >= 60:
+            posture_level = 'MODERATE'
+        elif posture_score >= 30:
+            posture_level = 'WEAK'
+        else:
+            posture_level = 'CRITICAL'
+
+        return {
+            'flags':          flags,
+            'missing':        missing,
+            'posture_score':  posture_score,
+            'posture_level':  posture_level,
+            'dll_chars_hex':  hex(dc),
+        }
+
     def _calculate_risk(self, analysis):
         score = 0
         factors = []
@@ -487,6 +655,20 @@ class PEStaticAnalyzer:
         if pe_info.get('has_tls'):
             score += 5
             factors.append('TLS callbacks present (possible anti-debug)')
+
+        # --- Security mitigations (missing = higher exploitability risk) ---
+        mitigations = analysis.get('security_mitigations', {})
+        missing = mitigations.get('missing', [])
+        high_risk_missing = [m for m in missing if m.get('risk') == 'HIGH']
+        if len(high_risk_missing) >= 3:
+            score += 20
+            factors.append(f'{len(high_risk_missing)} critical security mitigations absent (ASLR/DEP/GS)')
+        elif len(high_risk_missing) >= 2:
+            score += 12
+            factors.append(f'{len(high_risk_missing)} critical security mitigations absent')
+        elif len(high_risk_missing) == 1:
+            score += 6
+            factors.append(f'Missing {high_risk_missing[0]["name"]} protection')
 
         score = min(score, 100)
 

@@ -84,6 +84,79 @@
                         <div class="risk-factors" id="riskFactors"></div>
                     </div>
 
+                    <!-- AI Comprehensive Security Assessment -->
+                    <div class="pe-card pe-card-full" id="securityAssessmentCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-shield-virus"></i> AI Security Posture Assessment
+                            <span class="ai-powered-tag" style="margin-left:10px;">Powered by Claude Sonnet</span>
+                            <span id="postureScoreBadge" style="
+                                margin-left:12px; font-size:12px; font-weight:600;
+                                padding:3px 10px; border-radius:12px; background:#1e293b; color:#94a3b8;">
+                            </span>
+                        </h4>
+
+                        <!-- Mitigation flags grid -->
+                        <div id="mitigationFlagsGrid" style="
+                            display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+                            gap:8px; margin-bottom:16px;">
+                        </div>
+
+                        <!-- Missing mitigations -->
+                        <div id="missingMitigationsSection" style="display:none; margin-bottom:16px;">
+                            <h5 style="color:#f87171; margin-bottom:8px;">
+                                <i class="fas fa-exclamation-triangle"></i> Missing Security Protections
+                            </h5>
+                            <div id="missingMitigationsList"></div>
+                        </div>
+
+                        <!-- AI assessment panels -->
+                        <div id="aiSecurityAssessmentPanel" style="display:none;">
+                            <div style="
+                                background:linear-gradient(135deg,#1e3a5f,#1a2942);
+                                border:1px solid #2563eb; border-radius:10px; padding:16px; margin-bottom:12px;">
+                                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                                    <i class="fas fa-robot" style="color:#60a5fa;"></i>
+                                    <strong style="color:#93c5fd;">AI Exploitability Assessment</strong>
+                                    <span id="aiOverallRiskLabel" style="
+                                        padding:3px 10px; border-radius:10px; font-size:12px;
+                                        font-weight:700; background:#dc2626; color:#fff;"></span>
+                                </div>
+                                <p id="aiExploitabilityText" style="color:#cbd5e1; margin:0; font-size:14px; line-height:1.6;"></p>
+                            </div>
+
+                            <div style="
+                                background:#111827; border:1px solid #374151; border-radius:10px;
+                                padding:16px; margin-bottom:12px;">
+                                <h5 style="color:#e2e8f0; margin-bottom:8px;">
+                                    <i class="fas fa-search" style="color:#a78bfa;"></i> Behavioral Profile
+                                </h5>
+                                <p id="aiBehavioralSummary" style="color:#9ca3af; margin:0; font-size:14px;"></p>
+                            </div>
+
+                            <div class="ai-columns" style="margin-top:12px;">
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-crosshairs" style="color:#f87171;"></i> Attack Surface</h4>
+                                    <ul id="aiAttackSurface" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-map-marked-alt" style="color:#fb923c;"></i> MITRE ATT&CK</h4>
+                                    <ul id="aiMitreTechniques" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-tools" style="color:#34d399;"></i> Remediation</h4>
+                                    <ul id="aiRemediationPriority" class="ai-list"></ul>
+                                </div>
+                            </div>
+
+                            <div id="aiCweFindings" style="margin-top:12px; display:none;">
+                                <h5 style="color:#e2e8f0; margin-bottom:8px;">
+                                    <i class="fas fa-tag" style="color:#fbbf24;"></i> CWE Findings
+                                </h5>
+                                <div id="aiCweList" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Embedded Components (vulnerability-focused) -->
                     <div class="pe-card pe-card-full" id="componentsCard" style="display:none;">
                         <h4><i class="fas fa-puzzle-piece"></i> Detected Embedded Components
