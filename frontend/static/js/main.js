@@ -524,6 +524,102 @@ function showPEError(msg) {
 
 // --- Render all results ---
 // ============================================================
+// AI BINARY CODE ANALYSIS (disassembly → Claude reads assembly)
+// ============================================================
+
+function renderAiCodeAnalysis(codeAnalysis) {
+    const card = document.getElementById('aiCodeAnalysisCard');
+    if (!card) return;
+
+    if (!codeAnalysis || !codeAnalysis.success) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'block';
+
+    // Risk badge
+    const riskBadge = document.getElementById('aiCodeRiskBadge');
+    if (riskBadge) {
+        const r = codeAnalysis.code_risk || 'UNKNOWN';
+        const rColors = { CRITICAL:'#dc2626', HIGH:'#ea580c', MEDIUM:'#d97706', LOW:'#16a34a', CLEAN:'#059669' };
+        riskBadge.textContent = r;
+        riskBadge.style.background = rColors[r] || '#374151';
+        riskBadge.style.color = '#fff';
+    }
+
+    // Arch + instruction count
+    const archEl = document.getElementById('aiCodeArch');
+    if (archEl) archEl.textContent = `[${escapeHtml(codeAnalysis.arch || '')}]`;
+    const instrEl = document.getElementById('aiCodeInstrCount');
+    if (instrEl && codeAnalysis.instructions_analyzed)
+        instrEl.textContent = `${codeAnalysis.instructions_analyzed} instructions analyzed`;
+
+    // Entry point analysis
+    const epEl = document.getElementById('aiCodeEntryPoint');
+    if (epEl) epEl.textContent = codeAnalysis.entry_point_analysis || '';
+
+    // Overall verdict
+    const verdictEl = document.getElementById('aiCodeVerdict');
+    if (verdictEl) verdictEl.textContent = codeAnalysis.overall_code_verdict || '';
+
+    // Per-API code findings
+    const findingsSection = document.getElementById('aiCodeFindingsSection');
+    const findingsEl = document.getElementById('aiCodeFindings');
+    const findings = codeAnalysis.code_findings || [];
+    if (findingsEl && findings.length > 0) {
+        findingsSection.style.display = 'block';
+        findingsEl.innerHTML = findings.map(f => `
+            <div style="
+                background:#1a1a2e; border:1px solid #4c1d95; border-radius:8px;
+                padding:12px; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <code style="
+                        background:#2e1065; color:#c4b5fd; padding:2px 8px;
+                        border-radius:4px; font-size:12px;">${escapeHtml(f.api || '')}</code>
+                    ${f.mitre ? `<span style="font-size:11px; color:#7c3aed; border:1px solid #4c1d95;
+                        padding:1px 6px; border-radius:8px;">${escapeHtml(f.mitre)}</span>` : ''}
+                </div>
+                <div style="color:#a5b4fc; font-size:13px; margin-bottom:4px;">
+                    <strong>Pattern:</strong> ${escapeHtml(f.code_pattern || '')}
+                </div>
+                ${f.vulnerability ? `<div style="color:#f87171; font-size:12px; font-style:italic;">
+                    <i class="fas fa-exclamation-triangle"></i> ${escapeHtml(f.vulnerability)}
+                </div>` : ''}
+            </div>`
+        ).join('');
+    } else if (findingsSection) {
+        findingsSection.style.display = 'none';
+    }
+
+    // Hardcoded artifacts
+    const hardSection = document.getElementById('aiHardcodedSection');
+    const hardList = document.getElementById('aiHardcodedList');
+    const artifacts = codeAnalysis.hardcoded_artifacts || [];
+    if (hardList && artifacts.length > 0) {
+        hardSection.style.display = 'block';
+        hardList.innerHTML = artifacts.map(a =>
+            `<li style="color:#fcd34d; font-size:13px; margin-bottom:3px;">${escapeHtml(a)}</li>`
+        ).join('');
+    } else if (hardSection) {
+        hardSection.style.display = 'none';
+    }
+
+    // Obfuscation techniques
+    const obfSection = document.getElementById('aiObfuscationSection');
+    const obfList = document.getElementById('aiObfuscationList');
+    const obf = codeAnalysis.obfuscation_techniques || [];
+    if (obfList && obf.length > 0) {
+        obfSection.style.display = 'block';
+        obfList.innerHTML = obf.map(o =>
+            `<li style="color:#fdba74; font-size:13px; margin-bottom:3px;">${escapeHtml(o)}</li>`
+        ).join('');
+    } else if (obfSection) {
+        obfSection.style.display = 'none';
+    }
+}
+
+// ============================================================
 // SECURITY MITIGATIONS + AI COMPREHENSIVE ASSESSMENT
 // ============================================================
 
@@ -705,6 +801,7 @@ function renderSecurityAssessment(mitigations, aiAssessment) {
 function renderPEResults(data) {
     // Primary: risk + CVEs + components + AI behavior
     renderRiskBanner(data.ai_risk || data.risk);
+    renderAiCodeAnalysis(data.ai_code_analysis);
     renderSecurityAssessment(data.security_mitigations, data.ai_security_assessment);
     renderPECVEs(data);
     renderComponents(data.components);

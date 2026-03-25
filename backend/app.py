@@ -33,7 +33,7 @@ from static_analyzer     import PEStaticAnalyzer
 from package_analyzer    import PackageAnalyzer, PackageAnalyzer as _PKG
 from ai_analyzer         import (
     ai_match_cpe, ai_analyze_severity, ai_analyze_static_behavior,
-    ai_comprehensive_security_assessment,
+    ai_comprehensive_security_assessment, ai_analyze_binary_code,
     is_available as ai_available,
 )
 from cpe_semantic_matcher import (
@@ -443,10 +443,14 @@ def _analyze_pe(filepath: Path, filename: str):
                 if ai_risk:
                     result['ai_risk'] = ai_risk
 
+        # ── AI Binary Code Analysis — AI đọc assembly code thực của binary ──
+        # Claude đọc disassembly thực → tìm vulnerability patterns trong code
+        # Hoàn toàn độc lập với CVE database — phân tích logic của binary
+        if ai_available() and result.get('disassembly', {}).get('available'):
+            print(f"[PE] AI code analysis: {result['disassembly'].get('total_instructions', 0)} instructions")
+            result['ai_code_analysis'] = ai_analyze_binary_code(result['disassembly'], result)
+
         # ── AI Comprehensive Security Assessment (runs for EVERY PE file) ────
-        # This is the primary AI contribution: synthesizes security mitigations,
-        # behavioral indicators, and artifacts into a holistic exploitability
-        # assessment — independent of whether CVEs were found in NVD.
         if ai_available():
             result['ai_security_assessment'] = ai_comprehensive_security_assessment(result)
 

@@ -13,6 +13,12 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+try:
+    import capstone
+    CAPSTONE_AVAILABLE = True
+except ImportError:
+    CAPSTONE_AVAILABLE = False
+
 
 class PEStaticAnalyzer:
     """Static analyzer for PE binary files (exe, dll, sys)"""
@@ -202,6 +208,8 @@ class PEStaticAnalyzer:
                 result['exports'] = self._analyze_exports(pe)
                 # 2b. Security mitigations (ASLR, DEP/NX, CFG, Stack Canary, etc.)
                 result['security_mitigations'] = self._analyze_security_mitigations(pe)
+                # 2c. Disassembly — actual machine code for AI code analysis
+                result['disassembly'] = self._disassemble_binary(pe)
                 pe.close()
             except pefile.PEFormatError as e:
                 result['errors'].append(f'PE parse error: {str(e)}')
@@ -598,6 +606,208 @@ class PEStaticAnalyzer:
             'posture_level':  posture_level,
             'dll_chars_hex':  hex(dc),
         }
+
+    # -------------------------------------------------------------------------
+    # Binary Disassembly — for AI code-level analysis
+    # Uses Capstone to extract real assembly code so Claude can read it and
+    # identify vulnerability patterns directly in the binary's logic.
+    # -------------------------------------------------------------------------
+
+    MAX_DISASM_INSTRUCTIONS = 150   # per chunk sent to AI
+    MAX_DISASM_CHUNKS       = 4     # entry point + up to 3 suspicious function stubs
+
+    def _disassemble_binary(self, pe) -> dict:
+        """
+        Disassemble key code regions of the PE binary.
+
+        Extracts:
+          1. Entry point code  — the first instructions executed
+          2. Code stubs near suspicious API calls — shows HOW dangerous
+             APIs (VirtualAllocEx, WriteProcessMemory, etc.) are invoked
+             and what precedes/follows each call
+
+        Returns:
+          {
+            "available": bool,
+            "arch": "x86" | "x64",
+            "entry_point": [{"address": "0x...", "mnemonic": "...", "op_str": "..."}, ...],
+            "suspicious_stubs": [
+                {"api": "VirtualAllocEx", "instructions": [...]},
+                ...
+            ],
+            "total_instructions": int,
+          }
+        """
+        if not CAPSTONE_AVAILABLE:
+            return {"available": False, "reason": "capstone not installed"}
+
+        try:
+            # Determine architecture
+            machine = pe.FILE_HEADER.Machine
+            if machine == 0x8664:    # AMD64
+                cs = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+                arch = "x64"
+            elif machine == 0x014c:  # i386
+                cs = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+                arch = "x86"
+            else:
+                return {"available": False, "reason": f"Unsupported arch: {hex(machine)}"}
+
+            cs.detail = False  # faster — we only need mnemonic + op_str
+
+            result = {
+                "available": True,
+                "arch":      arch,
+                "entry_point":       [],
+                "suspicious_stubs":  [],
+                "total_instructions": 0,
+            }
+
+            # ── 1. Entry point disassembly ────────────────────────────────
+            ep_rva = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+            if ep_rva:
+                try:
+                    ep_data = pe.get_data(ep_rva, 1024)
+                    ep_va   = pe.OPTIONAL_HEADER.ImageBase + ep_rva
+                    insns = []
+                    for insn in cs.disasm(ep_data, ep_va):
+                        insns.append({
+                            "address":  f"0x{insn.address:08x}",
+                            "mnemonic": insn.mnemonic,
+                            "op_str":   insn.op_str,
+                            "bytes":    insn.bytes.hex(),
+                        })
+                        if len(insns) >= self.MAX_DISASM_INSTRUCTIONS:
+                            break
+                    result["entry_point"] = insns
+                    result["total_instructions"] += len(insns)
+                except Exception:
+                    pass
+
+            # ── 2. Suspicious API stubs ───────────────────────────────────
+            # Find code bytes around each import that references a suspicious API.
+            # Approach: walk IAT, for each suspicious import find thunk RVA,
+            # then disassemble the code section that CALLs into that thunk.
+            HIGH_VALUE_APIS = {
+                'VirtualAllocEx', 'WriteProcessMemory', 'CreateRemoteThread',
+                'CreateRemoteThreadEx', 'NtCreateThreadEx',
+                'ShellExecute', 'ShellExecuteEx', 'WinExec',
+                'SetWindowsHookEx', 'GetAsyncKeyState',
+                'AdjustTokenPrivileges', 'OpenProcessToken',
+                'URLDownloadToFile', 'InternetReadFile',
+                'CryptEncrypt', 'CryptDecrypt',
+            }
+
+            stubs_found = 0
+            if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+                for dll_entry in pe.DIRECTORY_ENTRY_IMPORT:
+                    if stubs_found >= self.MAX_DISASM_CHUNKS - 1:
+                        break
+                    for imp in dll_entry.imports:
+                        if stubs_found >= self.MAX_DISASM_CHUNKS - 1:
+                            break
+                        if not imp.name:
+                            continue
+                        try:
+                            func_name = imp.name.decode('utf-8', errors='replace')
+                        except Exception:
+                            continue
+
+                        if func_name not in HIGH_VALUE_APIS:
+                            continue
+
+                        # imp.address = VA of the IAT slot (pointer to function)
+                        # Disassemble ~64 bytes of code leading INTO this call
+                        # by scanning .text section for a CALL instruction that
+                        # references the IAT slot.
+                        thunk_va = imp.address
+                        if not thunk_va:
+                            continue
+
+                        # Find a code section and scan for CALL [thunk_va]
+                        stub_insns = self._find_call_stub(pe, cs, thunk_va, arch)
+                        if stub_insns:
+                            result["suspicious_stubs"].append({
+                                "api":          func_name,
+                                "instructions": stub_insns,
+                            })
+                            result["total_instructions"] += len(stub_insns)
+                            stubs_found += 1
+
+            return result
+
+        except Exception as exc:
+            return {"available": False, "reason": str(exc)}
+
+    def _find_call_stub(self, pe, cs, thunk_va: int, arch: str) -> list:
+        """
+        Scan executable sections for a CALL instruction targeting thunk_va.
+        Return up to 30 instructions centered on that call site.
+        """
+        CALL_BYTES_32 = b'\xff\x15'   # CALL DWORD PTR [addr]
+        CALL_BYTES_64 = b'\xff\x15'   # CALL QWORD PTR [rip+offset]
+
+        image_base = pe.OPTIONAL_HEADER.ImageBase
+
+        for section in pe.sections:
+            chars = section.Characteristics
+            if not (chars & 0x20000000):  # not executable
+                continue
+            try:
+                sec_data = section.get_data()
+                sec_va   = image_base + section.VirtualAddress
+
+                # Search for indirect CALL pattern
+                offset = 0
+                while offset < len(sec_data) - 6:
+                    pos = sec_data.find(CALL_BYTES_32, offset)
+                    if pos == -1:
+                        break
+                    offset = pos + 1
+
+                    # For x86: CALL [abs32]
+                    if arch == "x86" and pos + 6 <= len(sec_data):
+                        import struct
+                        target = struct.unpack_from('<I', sec_data, pos + 2)[0]
+                        if target == thunk_va:
+                            return self._disasm_around(cs, sec_data, sec_va, pos, 15)
+
+                    # For x64: CALL [rip + rel32]
+                    elif arch == "x64" and pos + 6 <= len(sec_data):
+                        import struct
+                        rel = struct.unpack_from('<i', sec_data, pos + 2)[0]
+                        resolved = sec_va + pos + 6 + rel
+                        if resolved == thunk_va:
+                            return self._disasm_around(cs, sec_data, sec_va, pos, 15)
+
+            except Exception:
+                continue
+
+        return []
+
+    def _disasm_around(self, cs, sec_data: bytes, sec_va: int, call_offset: int,
+                       context: int = 15) -> list:
+        """
+        Disassemble `context` instructions before AND after call_offset.
+        Returns list of instruction dicts.
+        """
+        # Back up to get instructions before the CALL
+        start = max(0, call_offset - context * 8)   # rough estimate
+        chunk = sec_data[start: call_offset + 64]
+        va    = sec_va + start
+
+        insns = []
+        for insn in cs.disasm(chunk, va):
+            insns.append({
+                "address":  f"0x{insn.address:08x}",
+                "mnemonic": insn.mnemonic,
+                "op_str":   insn.op_str,
+                "bytes":    insn.bytes.hex(),
+            })
+            if len(insns) >= context * 2 + 5:
+                break
+
+        return insns
 
     def _calculate_risk(self, analysis):
         score = 0

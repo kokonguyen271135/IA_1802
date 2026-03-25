@@ -84,6 +84,66 @@
                         <div class="risk-factors" id="riskFactors"></div>
                     </div>
 
+                    <!-- AI Binary Code Analysis (disassembly) -->
+                    <div class="pe-card pe-card-full" id="aiCodeAnalysisCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-microchip"></i> AI Code Analysis
+                            <span style="font-size:12px; font-weight:400; color:#6b7280; margin-left:8px;">
+                                Claude đọc assembly code thực của binary
+                            </span>
+                            <span class="ai-powered-tag" style="margin-left:10px;">Claude Sonnet · Capstone</span>
+                            <span id="aiCodeRiskBadge" style="
+                                margin-left:12px; padding:3px 10px; border-radius:12px;
+                                font-size:12px; font-weight:700;"></span>
+                        </h4>
+
+                        <!-- Entry point verdict -->
+                        <div style="
+                            background:#0f172a; border:1px solid #1e3a5f; border-radius:8px;
+                            padding:14px; margin-bottom:14px;">
+                            <div style="font-size:12px; color:#60a5fa; margin-bottom:6px; font-weight:600;">
+                                <i class="fas fa-door-open"></i> Entry Point Analysis
+                                <span id="aiCodeArch" style="margin-left:8px; color:#475569;"></span>
+                                <span id="aiCodeInstrCount" style="margin-left:8px; color:#475569; font-style:italic;"></span>
+                            </div>
+                            <p id="aiCodeEntryPoint" style="color:#e2e8f0; margin:0; font-size:13px; line-height:1.7;"></p>
+                        </div>
+
+                        <!-- Overall verdict -->
+                        <div style="
+                            background:#0f172a; border:1px solid #374151; border-radius:8px;
+                            padding:14px; margin-bottom:14px;">
+                            <div style="font-size:12px; color:#a78bfa; margin-bottom:6px; font-weight:600;">
+                                <i class="fas fa-gavel"></i> Code Verdict
+                            </div>
+                            <p id="aiCodeVerdict" style="color:#e2e8f0; margin:0; font-size:13px; line-height:1.7;"></p>
+                        </div>
+
+                        <!-- Per-API code findings -->
+                        <div id="aiCodeFindingsSection" style="display:none; margin-bottom:14px;">
+                            <div style="font-size:12px; color:#f87171; margin-bottom:8px; font-weight:600;">
+                                <i class="fas fa-code"></i> Suspicious API Call Patterns
+                            </div>
+                            <div id="aiCodeFindings"></div>
+                        </div>
+
+                        <!-- Hardcoded artifacts + obfuscation -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div id="aiHardcodedSection" style="display:none;">
+                                <div style="font-size:12px; color:#fbbf24; margin-bottom:6px; font-weight:600;">
+                                    <i class="fas fa-key"></i> Hardcoded Artifacts
+                                </div>
+                                <ul id="aiHardcodedList" class="ai-list"></ul>
+                            </div>
+                            <div id="aiObfuscationSection" style="display:none;">
+                                <div style="font-size:12px; color:#fb923c; margin-bottom:6px; font-weight:600;">
+                                    <i class="fas fa-eye-slash"></i> Obfuscation Techniques
+                                </div>
+                                <ul id="aiObfuscationList" class="ai-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- AI Comprehensive Security Assessment -->
                     <div class="pe-card pe-card-full" id="securityAssessmentCard" style="display:none;">
                         <h4>

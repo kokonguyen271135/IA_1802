@@ -389,7 +389,171 @@ Respond ONLY with valid JSON (no markdown fences):
         return {"success": False, "error": str(exc)}
 
 
-# ─── 4. AI Static Behavior Analysis (legacy fallback) ────────────────────────
+# ─── 4. AI Binary Code Analysis (real disassembly analysis) ─────────────────
+
+def ai_analyze_binary_code(disassembly: dict, static_result: dict) -> dict:
+    """
+    AI reads and analyzes ACTUAL disassembled machine code from the binary.
+
+    This is genuine AI binary analysis — Claude reads real assembly instructions
+    (entry point + stubs around suspicious API calls) and identifies:
+      - Specific vulnerability patterns visible in the code logic
+      - How dangerous APIs are invoked (argument patterns, preconditions)
+      - Obfuscation / evasion techniques encoded in the instruction stream
+      - Hardcoded constants, keys, or magic bytes
+      - Whether the code flow matches known malware patterns
+
+    Unlike CVE lookup or metadata analysis, this finds issues that have NO
+    entry in any database — Claude reasons directly from the machine code.
+
+    Args:
+        disassembly: output of PEStaticAnalyzer._disassemble_binary()
+        static_result: full static analysis (for context: imports, strings, arch)
+
+    Returns:
+        {
+          "success": bool,
+          "arch": str,
+          "entry_point_analysis": str,   # what the entry code does
+          "code_findings": [             # per suspicious API stub
+              {
+                "api": str,
+                "code_pattern": str,     # what the code around this call does
+                "vulnerability": str,    # specific vulnerability if found
+                "mitre": str,           # ATT&CK technique
+              }
+          ],
+          "hardcoded_artifacts": [str],  # keys, constants, suspicious values
+          "obfuscation_techniques": [str],
+          "overall_code_verdict": str,
+          "code_risk": "CRITICAL|HIGH|MEDIUM|LOW|CLEAN",
+        }
+    """
+    if not is_available():
+        return {"success": False, "error": "AI not available"}
+
+    if not disassembly or not disassembly.get("available"):
+        return {"success": False, "error": disassembly.get("reason", "No disassembly")}
+
+    arch = disassembly.get("arch", "x86")
+
+    # ── Format entry point disassembly ───────────────────────────────────────
+    ep_insns = disassembly.get("entry_point", [])
+    if not ep_insns:
+        return {"success": False, "error": "No entry point disassembly available"}
+
+    ep_lines = "\n".join(
+        f"  {i['address']}  {i['mnemonic']:<10} {i['op_str']}"
+        for i in ep_insns[:80]
+    )
+
+    # ── Format suspicious API stubs ───────────────────────────────────────────
+    stubs = disassembly.get("suspicious_stubs", [])
+    stubs_text = ""
+    for stub in stubs[:4]:
+        api_name = stub["api"]
+        insn_lines = "\n".join(
+            f"    {i['address']}  {i['mnemonic']:<10} {i['op_str']}"
+            for i in stub["instructions"]
+        )
+        stubs_text += f"\n--- Code stub for {api_name} ---\n{insn_lines}\n"
+
+    # ── Context from static analysis ─────────────────────────────────────────
+    imports_ctx = list((static_result.get("imports") or {}).get("by_category", {}).keys())
+    strings_ctx = {
+        "urls":     (static_result.get("strings") or {}).get("URLs", [])[:3],
+        "commands": (static_result.get("strings") or {}).get("Suspicious Commands", [])[:3],
+    }
+
+    prompt = f"""You are an expert reverse engineer and binary vulnerability researcher.
+Analyze the following REAL disassembled {arch} machine code extracted from a Windows PE binary.
+
+Your task: read the actual assembly instructions and identify concrete security findings.
+This is NOT a metadata analysis — you are reading the actual machine code.
+
+═══════════════════════════════════════════════════════════════════════════════
+ENTRY POINT CODE (first ~80 instructions executed when binary starts)
+Architecture: {arch}
+═══════════════════════════════════════════════════════════════════════════════
+{ep_lines}
+
+═══════════════════════════════════════════════════════════════════════════════
+CODE STUBS AROUND DANGEROUS API CALLS
+(instructions immediately before/after each high-value API call)
+═══════════════════════════════════════════════════════════════════════════════
+{stubs_text if stubs_text else "No suspicious API call stubs available."}
+
+═══════════════════════════════════════════════════════════════════════════════
+CONTEXT (from import table + strings)
+═══════════════════════════════════════════════════════════════════════════════
+Suspicious API categories present: {imports_ctx}
+Embedded URLs: {strings_ctx["urls"]}
+Suspicious commands: {strings_ctx["commands"]}
+
+═══════════════════════════════════════════════════════════════════════════════
+ANALYSIS REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. ENTRY POINT ANALYSIS:
+   - What is the entry point code doing? (initialization, unpacking, anti-debug check, etc.)
+   - Are there suspicious patterns? (self-modifying code indicators, decryption loops,
+     unusual register manipulation, deliberate obfuscation)
+   - Any hardcoded constants/addresses that look like keys, C2 ports, magic bytes?
+
+2. CODE FINDINGS PER STUB:
+   For each API stub provided, analyze HOW that API is being called:
+   - What arguments are being set up before the call? (registers/stack)
+   - Does the argument pattern match a known exploit technique?
+     Example: VirtualAllocEx with PAGE_EXECUTE_READWRITE = typical shellcode injection
+   - What happens immediately after the call? (return value checked? loop? conditional jump?)
+
+3. HARDCODED ARTIFACTS:
+   - Look for suspicious immediate values: IP addresses in hex, port numbers,
+     encryption keys, magic bytes, shellcode stubs pushed as immediates
+
+4. OBFUSCATION TECHNIQUES:
+   - Junk instructions (NOPs, useless xors)?
+   - Indirect jumps through registers?
+   - Stack-based code execution patterns?
+
+5. OVERALL VERDICT:
+   Based on what you read in the actual code, what is this binary likely doing?
+
+Respond ONLY with valid JSON (no markdown fences):
+{{
+  "arch": "{arch}",
+  "entry_point_analysis": "specific description of what entry point code does",
+  "code_findings": [
+    {{
+      "api": "API name",
+      "code_pattern": "what the surrounding code does (argument setup, return handling)",
+      "vulnerability": "specific vulnerability or exploit technique evidenced by this code pattern",
+      "mitre": "T#### - Technique Name"
+    }}
+  ],
+  "hardcoded_artifacts": ["hex constant 0x... looks like a port/key/address", "..."],
+  "obfuscation_techniques": ["technique1", "technique2"],
+  "overall_code_verdict": "2-3 sentences on what this binary is doing based on actual code",
+  "code_risk": "CRITICAL|HIGH|MEDIUM|LOW|CLEAN"
+}}"""
+
+    try:
+        msg = _client().messages.create(
+            model=SEVERITY_MODEL,
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = _extract_json(msg.content[0].text.strip())
+        if result:
+            result["success"] = True
+            result["instructions_analyzed"] = disassembly.get("total_instructions", 0)
+            return result
+        return {"success": False, "error": "Could not parse AI response"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+# ─── 5. AI Static Behavior Analysis (legacy fallback) ────────────────────────
 
 def ai_analyze_static_behavior(static_result: dict) -> dict:
     """
