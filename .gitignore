@@ -45,3 +45,5 @@ models/bert_cwe/model.safetensors
 # Keep evaluation reports and metadata
 !models/*.txt
 !models/*.json
+data/training/cve_cwe_train.csv
+data/training/cve_severity_train.csv

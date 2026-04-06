@@ -229,7 +229,21 @@ function displayResults(data) {
         return;
     }
 
-    data.vulnerabilities.forEach(cve => {
+    let sorted;
+    if (data.analysis_type === 'search') {
+        sorted = [...data.vulnerabilities].sort((a, b) =>
+            (b.published || '').localeCompare(a.published || '')
+        );
+    } else {
+        const severityOrder = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+        sorted = [...data.vulnerabilities].sort((a, b) => {
+            const sa = severityOrder[a.severity] ?? 0;
+            const sb = severityOrder[b.severity] ?? 0;
+            if (sb !== sa) return sb - sa;
+            return (parseFloat(b.cvss_score) || 0) - (parseFloat(a.cvss_score) || 0);
+        });
+    }
+    sorted.forEach(cve => {
         const cveItem = createCVEItem(cve);
         cveList.appendChild(cveItem);
     });
@@ -244,24 +258,25 @@ const AI_RISK_COLORS = {
     HIGH:     { bg: '#fff7ed', border: '#f97316', text: '#7c2d12', badge: '#f97316' },
     MEDIUM:   { bg: '#fefce8', border: '#eab308', text: '#713f12', badge: '#eab308' },
     LOW:      { bg: '#f0fdf4', border: '#22c55e', text: '#14532d', badge: '#22c55e' },
+    CLEAN:    { bg: '#f0fdf4', border: '#10b981', text: '#065f46', badge: '#10b981' },
 };
 
 function renderAiPanel(ai, panelId, riskBadgeId, summaryId, threatsId, recsId, vectorsId) {
     const panel = document.getElementById(panelId);
     if (!panel) return;
+    panel.style.display = 'none';
+    return;
 
-    if (!ai || !ai.success) {
+    if (!ai || !ai.success) { // eslint-disable-line no-unreachable
         panel.style.display = 'none';
         return;
     }
 
     const colors = AI_RISK_COLORS[ai.overall_risk] || AI_RISK_COLORS.MEDIUM;
 
-    // Style the panel border
     panel.style.borderColor = colors.border;
     panel.style.background  = colors.bg;
 
-    // Overall risk badge
     const badge = document.getElementById(riskBadgeId);
     if (badge) {
         badge.textContent = ai.overall_risk;
@@ -269,29 +284,46 @@ function renderAiPanel(ai, panelId, riskBadgeId, summaryId, threatsId, recsId, v
         badge.style.color = '#fff';
     }
 
-    // Risk summary
     const summaryEl = document.getElementById(summaryId);
     if (summaryEl) summaryEl.textContent = ai.risk_summary || '';
 
-    // Top threats
+    // ── CLEAN: ẩn threats/recs, hiện thông báo an toàn ─────────────────────
+    const isClean = ai.overall_risk === 'CLEAN';
+
     const threatsEl = document.getElementById(threatsId);
     if (threatsEl) {
-        threatsEl.innerHTML = (ai.top_threats || [])
-            .map(t => `<li>${escapeHtml(t)}</li>`).join('');
+        const threatsSection = threatsEl.closest('.ai-section') || threatsEl.parentElement;
+        if (isClean) {
+            if (threatsSection) threatsSection.style.display = 'none';
+        } else {
+            if (threatsSection) threatsSection.style.display = '';
+            threatsEl.innerHTML = (ai.top_threats || [])
+                .map(t => `<li>${escapeHtml(t)}</li>`).join('');
+        }
     }
 
-    // Recommendations
     const recsEl = document.getElementById(recsId);
     if (recsEl) {
-        recsEl.innerHTML = (ai.recommendations || [])
-            .map(r => `<li>${escapeHtml(r)}</li>`).join('');
+        const recsSection = recsEl.closest('.ai-section') || recsEl.parentElement;
+        if (isClean) {
+            if (recsSection) recsSection.style.display = 'none';
+        } else {
+            if (recsSection) recsSection.style.display = '';
+            recsEl.innerHTML = (ai.recommendations || [])
+                .map(r => `<li>${escapeHtml(r)}</li>`).join('');
+        }
     }
 
-    // Attack vectors
     const vectorsEl = document.getElementById(vectorsId);
     if (vectorsEl) {
-        vectorsEl.innerHTML = (ai.key_attack_vectors || [])
-            .map(v => `<span class="ai-vector-tag">${escapeHtml(v)}</span>`).join('');
+        const vectorsSection = vectorsEl.closest('.ai-section') || vectorsEl.parentElement;
+        if (isClean) {
+            if (vectorsSection) vectorsSection.style.display = 'none';
+        } else {
+            if (vectorsSection) vectorsSection.style.display = '';
+            vectorsEl.innerHTML = (ai.key_attack_vectors || [])
+                .map(v => `<span class="ai-vector-tag">${escapeHtml(v)}</span>`).join('');
+        }
     }
 
     panel.style.display = 'block';
@@ -604,7 +636,14 @@ function _renderPECVEList(listEl, vulns, stats, title) {
             (showing ${vulns.length} of ${stats.total_cves || vulns.length})
         </span>`;
     listEl.appendChild(header);
-    vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
+    const severityOrder = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const sorted = [...vulns].sort((a, b) => {
+        const sa = severityOrder[a.severity] ?? 0;
+        const sb = severityOrder[b.severity] ?? 0;
+        if (sb !== sa) return sb - sa;
+        return (parseFloat(b.cvss_score) || 0) - (parseFloat(a.cvss_score) || 0);
+    });
+    sorted.forEach(cve => listEl.appendChild(createCVEItem(cve)));
 }
 
 // CVE section inside PE Analysis tab
@@ -627,7 +666,14 @@ function _renderPECVEList(listEl, vulns, stats, title) {
             (showing ${vulns.length} of ${stats.total_cves || vulns.length})
         </span>`;
     listEl.appendChild(header);
-    vulns.forEach(cve => listEl.appendChild(createCVEItem(cve)));
+    const severityOrder = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const sorted = [...vulns].sort((a, b) => {
+        const sa = severityOrder[a.severity] ?? 0;
+        const sb = severityOrder[b.severity] ?? 0;
+        if (sb !== sa) return sb - sa;
+        return (parseFloat(b.cvss_score) || 0) - (parseFloat(a.cvss_score) || 0);
+    });
+    sorted.forEach(cve => listEl.appendChild(createCVEItem(cve)));
 }
 
 function renderPECVEs(data) {
@@ -675,9 +721,10 @@ function renderPECVEs(data) {
             listEl.appendChild(badgeWrap);
         }
 
+        // Hiển thị CVEs từ CWE behavior prediction (nếu có)
         if (vulns.length > 0) {
             _renderPECVEStats(stats, vulns, statsEl);
-            _renderPECVEList(listEl, vulns, stats, 'Predicted CVEs');
+            _renderPECVEList(listEl, vulns, stats, 'Predicted Vulnerabilities (based on CWE behavior)');
         } else {
             statsEl.style.display = 'none';
         }
@@ -888,14 +935,13 @@ function renderRiskBanner(risk) {
     const score   = risk.score || 0;
     const factors = risk.factors || [];
     const colors  = RISK_COLORS[level] || RISK_COLORS.CLEAN;
-    const isAI    = risk.method === 'ai_relevance';
+    const isAI    = risk.method && risk.method !== 'heuristic';
 
     const banner = document.getElementById('riskBanner');
     banner.style.background   = colors.bg;
     banner.style.borderColor  = colors.border;
     banner.style.color        = colors.text;
 
-    const isAI = risk.method === 'ai_relevance';
     document.getElementById('riskLevel').textContent = level;
     document.getElementById('riskScore').textContent = isAI ? `AI Risk Score: ${score} / 100` : `Risk Score: ${score} / 100`;
 

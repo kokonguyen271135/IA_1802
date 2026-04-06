@@ -75,32 +75,71 @@ DEFAULT_META    = ROOT / "models" / "bert_cwe_meta.json"
 # Dùng top-N CWE phổ biến nhất từ NVD để tránh long-tail noise
 DEFAULT_TOP_CWES = 20
 
+# CWEs thực sự xuất hiện trong PE/native binary vulnerabilities.
+# Loại bỏ web-only: CWE-79 (XSS), CWE-89 (SQLi), CWE-22 (path traversal),
+# CWE-352 (CSRF), CWE-918 (SSRF), CWE-611 (XXE).
+PE_RELEVANT_CWES = [
+    "CWE-119",  # Buffer Overflow (bao gồm stack/heap)
+    "CWE-787",  # Out-of-bounds Write
+    "CWE-125",  # Out-of-bounds Read
+    "CWE-416",  # Use After Free
+    "CWE-476",  # NULL Pointer Dereference
+    "CWE-362",  # Race Condition / Concurrent Execution
+    "CWE-94",   # Code Injection / Arbitrary Code Execution
+    "CWE-78",   # OS Command Injection
+    "CWE-190",  # Integer Overflow or Wraparound
+    "CWE-264",  # Permissions, Privileges, and Access Controls
+    "CWE-200",  # Exposure of Sensitive Information
+    "CWE-287",  # Improper Authentication
+    "CWE-798",  # Use of Hard-coded Credentials
+    "CWE-400",  # Uncontrolled Resource Consumption
+    "CWE-843",  # Type Confusion
+    # Removed: CWE-399 (too generic/ambiguous), CWE-20 (NVD catch-all, low discriminability),
+    #          CWE-77 (overlaps heavily with CWE-78 OS Command Injection)
+    # Removed: CWE-415 (Double Free — 101 samples, F1=0.79, overlaps heavily with CWE-416 Use After Free)
+    #          CWE-189 (Numeric Errors — 181 samples, F1=0.78, overlaps heavily with CWE-190 Integer Overflow)
+]
+
 
 # ── Dataset loading ────────────────────────────────────────────────────────────
 
 def load_dataset(path: Path, top_n: int = DEFAULT_TOP_CWES) -> tuple[list, dict, dict, int]:
     """
-    Load cve_cwe_train.csv, chọn top-N CWE phổ biến nhất.
+    Load cve_cwe_train.csv, chọn PE-relevant CWEs (whitelist).
+
+    Thay vì top-N by frequency (dễ bị dominated bởi web CWEs như XSS/SQLi),
+    dùng PE_RELEVANT_CWES whitelist để đảm bảo model học đúng domain.
+
+    Deduplicates by cve_id để tránh train/val/test leakage từ oversampling.
 
     Returns
     -------
     records   : list of (text, label_id)
-    label2id  : {"CWE-94": 0, "CWE-78": 1, ...}
-    id2label  : {0: "CWE-94", 1: "CWE-78", ...}
+    label2id  : {"CWE-119": 0, "CWE-787": 1, ...}
+    id2label  : {0: "CWE-119", 1: "CWE-787", ...}
     skipped   : số records bị bỏ qua
     """
     rows: list[tuple[str, str]] = []  # (description, primary_cwe)
     skipped = 0
+    seen_ids: set[str] = set()
 
     with open(path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            cve_id  = (row.get("cve_id")      or "").strip()
             desc    = (row.get("description") or "").strip()
             cwe_raw = (row.get("cwe_ids")     or "").strip()
 
             if not desc or not cwe_raw:
                 skipped += 1
                 continue
+
+            # Dedup by cve_id
+            if cve_id and cve_id in seen_ids:
+                skipped += 1
+                continue
+            if cve_id:
+                seen_ids.add(cve_id)
 
             # Lấy primary CWE (đầu tiên trong danh sách)
             primary_cwe = cwe_raw.split("|")[0].strip()
@@ -113,20 +152,27 @@ def load_dataset(path: Path, top_n: int = DEFAULT_TOP_CWES) -> tuple[list, dict,
     if not rows:
         return [], {}, {}, skipped
 
-    # ── Chọn top-N CWE phổ biến nhất ──
+    # ── Dùng PE_RELEVANT_CWES whitelist thay vì top-N by frequency ──
+    # Chỉ giữ các CWE trong whitelist có đủ sample trong dataset
     cwe_counts = Counter(cwe for _, cwe in rows)
-    top_cwes   = [cwe for cwe, _ in cwe_counts.most_common(top_n)]
+    selected_cwes = [cwe for cwe in PE_RELEVANT_CWES if cwe_counts.get(cwe, 0) > 0]
 
-    print(f"\n  Top-{top_n} CWE distribution (selected for training):")
-    for cwe, count in cwe_counts.most_common(top_n):
+    print(f"\n  PE-relevant CWE distribution ({len(selected_cwes)} classes):")
+    for cwe in selected_cwes:
+        count = cwe_counts[cwe]
         pct = count / len(rows) * 100
         print(f"    {cwe:<12} {count:>6,}  ({pct:4.1f}%)")
 
+    removed_web = [c for c in cwe_counts.most_common(top_n)
+                   if c[0] not in selected_cwes]
+    if removed_web:
+        print(f"\n  Excluded web/non-PE CWEs: {[c for c, _ in removed_web]}")
+
     # ── Build label maps ──
-    label2id = {cwe: idx for idx, cwe in enumerate(top_cwes)}
+    label2id = {cwe: idx for idx, cwe in enumerate(selected_cwes)}
     id2label = {idx: cwe for cwe, idx in label2id.items()}
 
-    # ── Filter records to top-N CWEs ──
+    # ── Filter records to selected CWEs ──
     records: list[tuple[str, int]] = []
     for desc, cwe in rows:
         if cwe in label2id:
@@ -361,7 +407,7 @@ def train(
         train_dataset   = train_ds,
         eval_dataset    = val_ds,
         compute_metrics = make_compute_metrics(),
-        callbacks       = [EarlyStoppingCallback(early_stopping_patience=2)],
+        callbacks       = [EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
     # ── Train ──
@@ -392,7 +438,7 @@ def train(
     # ── Save ──
     trainer.save_model(str(out_dir))
     tokenizer.save_pretrained(str(out_dir))
-    print(f"[Saved] Model → {out_dir}")
+    print(f"[Saved] Model -> {out_dir}")
 
     meta = {
         "base_model":    model_name,
@@ -415,7 +461,7 @@ def train(
     }
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"[Saved] Metadata → {meta_path}")
+    print(f"[Saved] Metadata -> {meta_path}")
 
     print(f"\n{'='*60}")
     print(f"  Test Accuracy : {acc*100:.2f}%")
@@ -429,7 +475,7 @@ def train(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fine-tune SecBERT for CWE category classification (Hướng 3)"
+        description="Fine-tune SecBERT for CWE category classification (Huong 3)"
     )
     parser.add_argument(
         "--model", default=DEFAULT_MODEL,
@@ -443,9 +489,9 @@ def main():
         "--top-cwes", type=int, default=DEFAULT_TOP_CWES,
         help=f"Number of top CWE classes to use (default: {DEFAULT_TOP_CWES})",
     )
-    parser.add_argument("--epochs",  type=int,   default=3,    help="Training epochs (default 3)")
+    parser.add_argument("--epochs",  type=int,   default=8,    help="Training epochs (default 8)")
     parser.add_argument("--batch",   type=int,   default=16,   help="Batch size (default 16)")
-    parser.add_argument("--lr",      type=float, default=2e-5, help="Learning rate (default 2e-5)")
+    parser.add_argument("--lr",      type=float, default=1e-5, help="Learning rate (default 1e-5)")
     parser.add_argument("--max-len", type=int,   default=256,  help="Max token length (default 256)")
     parser.add_argument(
         "--no-class-weights", action="store_true",
@@ -454,7 +500,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  CWE Classification — SecBERT Fine-tuning (Hướng 3)")
+    print("  CWE Classification - SecBERT Fine-tuning (Huong 3)")
     print("=" * 60)
 
     # ── Dependency check ──

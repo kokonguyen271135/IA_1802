@@ -145,7 +145,7 @@ def _parse_vuln(vuln: dict) -> dict | None:
     if not desc or len(desc) < 20:
         return None
 
-    # CVSS metrics — prefer v3.1 → v3.0 → v2
+    # CVSS metrics — prefer v3.1 -> v3.0 -> v2
     metrics  = cve.get("metrics", {})
     score, severity, vector = 0.0, "NONE", ""
 
@@ -292,9 +292,13 @@ def run_keyword_mode(api_key: str, max_per_kw: int = 300) -> dict[str, dict]:
 
 # ── Mode 2: bulk (all CVEs, paginated) ───────────────────────────────────────
 
+BULK_CHECKPOINT = ROOT / "data/training/_bulk_checkpoint.json"
+
+
 def run_bulk_mode(api_key: str, max_total: int = 0) -> dict[str, dict]:
     """
     Download ALL CVEs from NVD API v2 by paginating without keyword filter.
+    Supports resume via checkpoint file if interrupted.
 
     Parameters
     ----------
@@ -305,11 +309,24 @@ def run_bulk_mode(api_key: str, max_total: int = 0) -> dict[str, dict]:
     -------
     dict {cve_id: record}
     """
-    headers    = _make_headers(api_key)
-    all_records: dict[str, dict] = {}
-    start      = 0
+    headers = _make_headers(api_key)
 
-    print("  Fetching first page to discover total …")
+    # ── Resume from checkpoint if exists ──
+    all_records: dict[str, dict] = {}
+    start = 0
+    if BULK_CHECKPOINT.exists():
+        try:
+            with open(BULK_CHECKPOINT, encoding="utf-8") as f:
+                ckpt = json.load(f)
+            all_records = ckpt.get("records", {})
+            start = ckpt.get("next_start", 0)
+            print(f"  [Resume] Checkpoint found: {len(all_records):,} records, resuming from startIndex={start}")
+        except Exception:
+            print("  [Resume] Checkpoint corrupt, starting fresh")
+            all_records = {}
+            start = 0
+
+    print("  Fetching first page to discover total ...")
     _sleep(api_key)
     _, total = _fetch_page({"resultsPerPage": 1, "startIndex": 0}, headers)
     cap = total if max_total == 0 else min(total, max_total)
@@ -332,14 +349,25 @@ def run_bulk_mode(api_key: str, max_total: int = 0) -> dict[str, dict]:
                 all_records.setdefault(p["cve_id"], p)
 
         start += len(vulns)
-        pct    = start / cap * 100
+        pct = start / cap * 100
         print(f"  Downloaded {start:>6,} / {cap:,}  ({pct:5.1f}%)  "
               f"valid={len(all_records):,}", end="\r", flush=True)
+
+        # Save checkpoint every 10k records
+        if start % 10000 == 0:
+            BULK_CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
+            with open(BULK_CHECKPOINT, "w", encoding="utf-8") as f:
+                json.dump({"records": all_records, "next_start": start}, f)
 
         if start >= cap:
             break
 
     print()
+
+    # Remove checkpoint on successful completion
+    if BULK_CHECKPOINT.exists():
+        BULK_CHECKPOINT.unlink()
+
     return all_records
 
 
@@ -382,7 +410,7 @@ def balance_dataset(records: list, strategy: str = "oversample") -> list:
             needed  = target - len(samples)
             extras  = random.choices(samples, k=needed)
             balanced.extend(extras)
-            print(f"    Oversampled {sev}: {len(samples)} → {len(samples) + needed}")
+            print(f"    Oversampled {sev}: {len(samples)} -> {len(samples) + needed}")
 
     random.shuffle(balanced)
     return balanced
@@ -398,7 +426,7 @@ def save_csv(records: list, path: Path) -> None:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         w.writerows(records)
-    print(f"\n  Saved {len(records):,} records → {path}")
+    print(f"\n  Saved {len(records):,} records -> {path}")
 
     # Also save a CWE-labeled subset for Hướng 3
     cwe_path  = path.parent / "cve_cwe_train.csv"
@@ -410,7 +438,7 @@ def save_csv(records: list, path: Path) -> None:
             w.writeheader()
             w.writerows(cwe_records)
         pct = len(cwe_records) / len(records) * 100
-        print(f"  Saved {len(cwe_records):,} CWE-labeled records ({pct:.1f}%) → {cwe_path}")
+        print(f"  Saved {len(cwe_records):,} CWE-labeled records ({pct:.1f}%) -> {cwe_path}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -422,7 +450,7 @@ def print_distribution(records: list) -> None:
     for s in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
         n   = counts.get(s, 0)
         pct = n / total * 100 if total else 0
-        bar = "█" * int(pct / 2)
+        bar = "#" * int(pct / 2)
         print(f"    {s:<10} {n:>7,}  ({pct:5.1f}%)  {bar}")
 
 

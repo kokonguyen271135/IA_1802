@@ -32,7 +32,7 @@
                 <button class="tab-btn" onclick="showTab('search')">
                     <i class="fas fa-search"></i> Search Software
                 </button>
-                <button class="tab-btn" onclick="showTab('cpe')">
+                <button class="tab-btn" onclick="showTab('cpe')" style="display:none;">
                     <i class="fas fa-code"></i> Query CPE
                 </button>
             </div>
@@ -206,7 +206,7 @@
                                 <i class="fas fa-check-circle"></i>
                                 <h3 id="peCVELow">0</h3><p>Low</p>
                             </div>
-                            <div class="stat-card">
+                            <div class="stat-card" style="display:none;">
                                 <i class="fas fa-chart-line"></i>
                                 <h3 id="peCVEAvg">0</h3><p>Avg CVSS</p>
                             </div>
@@ -218,7 +218,7 @@
                                 <i class="fas fa-robot"></i>
                                 <span>AI Risk Assessment</span>
                                 <span id="peAiOverallRiskBadge" class="ai-risk-badge"></span>
-                                <span class="ai-powered-tag">Powered by Claude</span>
+                                <span class="ai-powered-tag">Rule-based Analysis</span>
                             </div>
                             <p id="peAiRiskSummary" class="ai-risk-summary"></p>
                             <div class="ai-columns">
@@ -246,7 +246,7 @@
                     </div>
 
                     <!-- Export -->
-                    <div class="export-section">
+                    <div class="export-section" style="display:none;">
                         <button class="btn btn-secondary" onclick="exportPEJSON()">
                             <i class="fas fa-download"></i> Export JSON
                         </button>
@@ -338,7 +338,7 @@
                         <h3 id="statLow">0</h3>
                         <p>Low</p>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card" style="display:none;">
                         <i class="fas fa-chart-line"></i>
                         <h3 id="statAvgCVSS">0</h3>
                         <p>Avg CVSS</p>
@@ -377,7 +377,7 @@
                 </div>
 
                 <!-- Export Options -->
-                <div class="export-section">
+                <div class="export-section" style="display:none;">
                     <button class="btn btn-secondary" onclick="exportJSON()">
                         <i class="fas fa-download"></i> Export JSON
                     </button>

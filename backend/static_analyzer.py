@@ -70,7 +70,7 @@ class PEStaticAnalyzer:
         'Process Injection': {
             'risk': 'HIGH',
             'apis': [
-                'VirtualAlloc', 'VirtualAllocEx', 'VirtualProtect', 'VirtualProtectEx',
+                'VirtualAlloc', 'VirtualAllocEx', 'VirtualProtectEx',
                 'WriteProcessMemory', 'ReadProcessMemory', 'CreateRemoteThread',
                 'CreateRemoteThreadEx', 'NtCreateThreadEx', 'RtlCreateUserThread',
                 'NtUnmapViewOfSection', 'ZwUnmapViewOfSection', 'QueueUserAPC',

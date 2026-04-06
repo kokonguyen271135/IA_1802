@@ -1,14 +1,12 @@
 """
 Unified Severity Classification Pipeline
 
-Combines TF-IDF + Logistic Regression, Fine-tuned BERT, and XGBoost + CVSS features
+Combines Fine-tuned BERT and XGBoost + CVSS features
 into a single ensemble prediction with confidence-weighted voting.
 
 Models:
-    tfidf    : TF-IDF + Logistic Regression  (86% accuracy, statistical baseline)
     bert     : Fine-tuned SecBERT             (97.94% accuracy, transformer)
     xgboost  : XGBoost + CVSS features        (92-96% accuracy, gradient boosting)
-               Replaces Zero-Shot NLI which achieved only 27% accuracy.
 
 Usage:
     from ai.severity_pipeline import enrich_cves, get_status
@@ -22,12 +20,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 # ── Import individual models (graceful degradation) ──────────────────────────
-try:
-    from severity_classifier import predict as _tfidf_predict, is_available as _tfidf_ok
-except Exception:
-    _tfidf_predict = None
-    _tfidf_ok = lambda: False
-
 try:
     from bert_severity_classifier import predict as _bert_predict, is_available as _bert_ok
 except Exception:
@@ -47,7 +39,6 @@ SEVERITY_LEVELS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 _MODEL_WEIGHTS = {
     'bert':    1.00,   # 97.94% accuracy — fine-tuned SecBERT
     'xgboost': 0.85,   # 92-96% accuracy — XGBoost + CVSS features
-    'tfidf':   0.70,   # 86.83% accuracy — TF-IDF + Logistic Regression
 }
 
 
@@ -71,14 +62,6 @@ def predict_severity(description: str, vector_string: str = '') -> dict | None:
         or None if no model is available.
     """
     results: dict[str, dict] = {}
-
-    if _tfidf_ok() and _tfidf_predict:
-        try:
-            r = _tfidf_predict(description=description, vector_string=vector_string)
-            if r:
-                results['tfidf'] = r
-        except Exception:
-            pass
 
     if _bert_ok() and _bert_predict:
         try:
@@ -110,7 +93,7 @@ def predict_severity(description: str, vector_string: str = '') -> dict | None:
             'confidence':         round(r.get('confidence', 0.0), 3),
             'source':             key,
             'models_used':        [key],
-            'individual':         {k: results.get(k) for k in ('tfidf', 'bert', 'xgboost')},
+            'individual':         {k: results.get(k) for k in ('bert', 'xgboost')},
         }
 
     # ── Multi-model ensemble: confidence-weighted voting ─────────────────────
@@ -142,7 +125,7 @@ def predict_severity(description: str, vector_string: str = '') -> dict | None:
         'confidence':         normalized[best],
         'source':             'ensemble',
         'models_used':        models_used,
-        'individual':         {k: results.get(k) for k in ('tfidf', 'bert', 'xgboost')},
+        'individual':         {k: results.get(k) for k in ('bert', 'xgboost')},
         'ensemble_scores':    normalized,
     }
 
@@ -163,12 +146,11 @@ def enrich_cves(cves: list) -> list:
 
 
 def is_available() -> bool:
-    return _tfidf_ok() or _bert_ok() or _xgb_ok()
+    return _bert_ok() or _xgb_ok()
 
 
 def get_status() -> dict:
     return {
-        'tfidf':    _tfidf_ok(),
         'bert':     _bert_ok(),
         'xgboost':  _xgb_ok(),
         'available': is_available(),

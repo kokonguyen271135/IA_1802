@@ -50,8 +50,8 @@ _MINILM_MODEL     = "sentence-transformers/all-MiniLM-L6-v2"   # lightest fallba
 _THRESHOLDS = [
     (0.72, "CRITICAL"),
     (0.55, "HIGH"),
-    (0.38, "MEDIUM"),
-    (0.22, "LOW"),
+    (0.50, "MEDIUM"),
+    (0.30, "LOW"),
     (0.00, "MINIMAL"),
 ]
 

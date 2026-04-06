@@ -88,13 +88,18 @@ def load_dataset(path: Path) -> tuple[list, int]:
 
     Text format: '{description} [SEP] {cvss_vector_tokens}'
     This mirrors the training format so inference uses the same input.
+
+    Deduplicates by cve_id to prevent train/val/test leakage from
+    oversampled minority classes in the raw CSV.
     """
     records: list[tuple[str, int]] = []
     skipped = 0
+    seen_ids: set[str] = set()
 
     with open(path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            cve_id = (row.get("cve_id") or "").strip()
             desc   = (row.get("description")   or "").strip()
             sev    = (row.get("severity")       or "").upper().strip()
             vector = (row.get("vector_string")  or "").strip()
@@ -102,6 +107,12 @@ def load_dataset(path: Path) -> tuple[list, int]:
             if not desc or sev not in LABEL2ID:
                 skipped += 1
                 continue
+
+            if cve_id and cve_id in seen_ids:
+                skipped += 1
+                continue
+            if cve_id:
+                seen_ids.add(cve_id)
 
             # Append CVSS vector as structured tokens so the model learns
             # both semantic description AND CVSS attributes.
@@ -385,7 +396,7 @@ def train(
     # ── Save model + metadata ──
     trainer.save_model(str(out_dir))
     tokenizer.save_pretrained(str(out_dir))
-    print(f"[Saved] Model → {out_dir}")
+    print(f"[Saved] Model -> {out_dir}")
 
     meta = {
         "base_model":       model_name,
@@ -411,7 +422,7 @@ def train(
     }
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"[Saved] Metadata → {meta_path}")
+    print(f"[Saved] Metadata -> {meta_path}")
 
     print(f"\n{'='*60}")
     print(f"  Test Accuracy : {acc*100:.2f}%")

@@ -1,58 +1,65 @@
 CWE Classifier (Fine-tuned SecBERT) - Training Report
 ======================================================
 Base model       : jackaduma/SecBERT
-Task             : CWE Classification (20 classes)
+Task             : CWE Classification (15 PE-relevant classes)
 Device           : cuda (NVIDIA GeForce RTX 3050 Laptop GPU)
 
-Training samples : 18,989
-Validation samples: 2,520
-Test samples     : 3,788
-Training time    : 779.7s (13.0 min)
+Training samples : 58,828
+Validation samples: 7,836
+Test samples     : 11,757
+Training time    : 6,204.3s (103.4 min)
 
 Hyperparameters:
-  Epochs         : 3
-  Learning rate  : 2e-05
+  Epochs         : 8 (early stopping patience=3)
+  Learning rate  : 1e-05
   Batch size     : 16
   Max length     : 256 tokens
 
-Test accuracy    : 0.8928 (89.28%)
-Test macro-F1    : 0.8929 (89.29%)
+Test accuracy    : 0.8659 (86.59%)
+Test macro-F1    : 0.8558 (85.58%)
 
-Classes (20 CWEs):
-  CWE-79  (XSS), CWE-200 (Info Exposure), CWE-20  (Improper Input Validation),
-  CWE-119 (Buffer Overflow), CWE-264 (Permissions), CWE-22  (Path Traversal),
-  CWE-89  (SQL Injection), CWE-502 (Deserialization), CWE-287 (Authentication),
-  CWE-787 (OOB Write), CWE-798 (Hard-coded Credentials), CWE-94  (Code Injection),
-  CWE-399 (Resource Management), CWE-78  (OS Command Injection), CWE-306 (Missing Auth),
-  CWE-416 (Use After Free), CWE-125 (OOB Read), CWE-918 (SSRF),
-  CWE-352 (CSRF), CWE-362 (Race Condition)
+Classes (15 PE-relevant CWEs):
+  CWE-119 (Buffer Overflow), CWE-787 (OOB Write), CWE-125 (OOB Read),
+  CWE-416 (Use After Free), CWE-476 (NULL Pointer Dereference),
+  CWE-362 (Race Condition), CWE-94  (Code Injection),
+  CWE-78  (OS Command Injection), CWE-190 (Integer Overflow),
+  CWE-264 (Permissions/Access Control), CWE-200 (Info Exposure),
+  CWE-287 (Improper Authentication), CWE-798 (Hard-coded Credentials),
+  CWE-400 (Uncontrolled Resource Consumption), CWE-843 (Type Confusion)
+
+Excluded web/non-PE CWEs:
+  CWE-79 (XSS), CWE-89 (SQLi), CWE-22 (Path Traversal),
+  CWE-352 (CSRF), CWE-862 (Missing Auth Check), CWE-74 (Injection),
+  CWE-284 (Improper Access Control), CWE-120 (Buffer Copy), CWE-434 (Unrestricted Upload)
+
+Removed low-discriminability classes (vs previous 17-class model):
+  CWE-399 (Resource Management -- too generic, overlaps many classes)
+  CWE-20  (Improper Input Validation -- NVD catch-all, low F1=0.63)
+  CWE-77  (Command Injection -- heavy overlap with CWE-78, low F1=0.64)
+  CWE-415 (Double Free -- 101 samples, F1=0.79, overlaps with CWE-416 Use After Free)
+  CWE-189 (Numeric Errors -- 181 samples, F1=0.78, overlaps with CWE-190 Integer Overflow)
 
 Classification Report:
               precision    recall  f1-score   support
 
-      CWE-79     0.9730    0.9752    0.9741       444
-     CWE-200     0.9149    0.9223    0.9186       373
-      CWE-20     0.8086    0.7139    0.7583       367
-     CWE-119     0.8487    0.8214    0.8348       280
-     CWE-264     0.8592    0.7832    0.8194       226
-      CWE-22     0.9598    0.9641    0.9620       223
-      CWE-89     0.9909    1.0000    0.9954       218
-     CWE-502     0.9575    0.9807    0.9690       207
-     CWE-287     0.8735    0.8896    0.8815       163
-     CWE-787     0.8675    0.8675    0.8675       151
-     CWE-798     0.9732    0.9797    0.9764       148
-      CWE-94     0.6772    0.7698    0.7205       139
-     CWE-399     0.6839    0.7970    0.7361       133
-      CWE-78     0.8797    0.9435    0.9105       124
-     CWE-306     0.9120    0.9580    0.9344       119
-     CWE-416     0.9204    0.9204    0.9204       113
-     CWE-125     0.9252    0.9083    0.9167       109
-     CWE-918     0.8788    0.9667    0.9206        90
-     CWE-352     0.9512    0.8966    0.9231        87
-     CWE-362     0.9306    0.9054    0.9178        74
+     CWE-119     0.8834    0.8574    0.8702      1970
+     CWE-787     0.8786    0.8669    0.8727      1495
+     CWE-125     0.8929    0.8874    0.8901      1155
+     CWE-416     0.9367    0.9238    0.9302       945
+     CWE-476     0.8860    0.9179    0.9016       694
+     CWE-362     0.8284    0.8537    0.8409       294
+      CWE-94     0.8222    0.8210    0.8216       676
+      CWE-78     0.8939    0.9091    0.9014       704
+     CWE-190     0.8407    0.8908    0.8651       403
+     CWE-264     0.7865    0.7993    0.7928       802
+     CWE-200     0.8773    0.8671    0.8722      1385
+     CWE-287     0.7806    0.7891    0.7848       550
+     CWE-798     0.8538    0.9188    0.8851       197
+     CWE-400     0.8056    0.8159    0.8107       391
+     CWE-843     0.7745    0.8229    0.7980        96
 
-    accuracy                         0.8928      3788
-   macro avg     0.8893    0.8982    0.8929      3788
-weighted avg     0.8938    0.8928    0.8925      3788
+    accuracy                         0.8659     11757
+   macro avg     0.8494    0.8627    0.8558     11757
+weighted avg     0.8663    0.8659    0.8660     11757
 
 Model saved to   : models/bert_cwe/
