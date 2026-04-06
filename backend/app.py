@@ -261,7 +261,7 @@ def _compute_ai_risk_score(cves: list, ember_result: dict | None = None) -> dict
         label = ember_result.get('label', '')
         lvl   = ember_result.get('level', '')
         factors.append(f"EMBER ML: {prob:.1%} malware probability → {label}")
-        factors.append(f"Model: XGBoost trained on EMBER 2017 (600K PE samples, AUC=0.9994)")
+        factors.append(f"Model: XGBoost trained on EMBER 2017 (600K  samples, AUC=0.9994)")
     elif cves:
         # Fallback khi EMBER không available — dùng CVSS
         cvss_scores = [c.get('cvss_score') or 0 for c in cves]
