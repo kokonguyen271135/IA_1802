@@ -157,6 +157,12 @@ CWE_CATALOG: dict[str, tuple[str, str, float]] = {
         "code, and the code sequence requires temporary, exclusive access to a shared resource.",
         0.70,
     ),
+    "CWE-20": (
+        "Improper Input Validation",
+        "The product receives input or data, but it does not validate or incorrectly "
+        "validates that the input has the properties required for safe and correct processing.",
+        0.60,
+    ),
 }
 
 
@@ -268,7 +274,10 @@ def predict_cwe(analysis: dict, top_k: int = 5) -> list[dict]:
     triggered: dict[str, list[str]] = {}
 
     def _add(cwe_id: str, conf: float, reason: str) -> None:
-        scores[cwe_id] = max(scores.get(cwe_id, 0.0), conf)
+        # Probabilistic soft-OR: P(A∪B) = P(A) + P(B)·(1-P(A))
+        # Multiple independent signals → confidence increases, capped at 0.99
+        existing = scores.get(cwe_id, 0.0)
+        scores[cwe_id] = min(0.99, existing + conf * (1.0 - existing))
         triggered.setdefault(cwe_id, []).append(reason)
 
     # ── 1. Import behavior categories ─────────────────────────────────────────
@@ -845,6 +854,56 @@ class CWEPredictor:
         "WSAStartup":          ["network", "socket", "remote"],
     }
 
+    # NVD search keywords for behavior-based CVE search
+    _NVD_BEHAVIOR_KEYWORDS: dict[str, str] = {
+        "Code Execution":        "remote code execution windows",
+        "Keylogging":            "keylogger credential theft windows",
+        "Process Injection":     "process injection shellcode windows",
+        "Privilege Escalation":  "privilege escalation local windows",
+        "Network Communication": "remote access trojan backdoor",
+        "Anti-Debugging":        "malware evasion anti-analysis",
+        "Cryptography":          "ransomware file encryption",
+        "Registry Manipulation": "registry persistence startup malware",
+        "Service Manipulation":  "windows service abuse persistence",
+        "Dynamic Loading":       "dll hijacking injection",
+    }
+
+    # Priority order for selecting top behaviors (lower = higher priority)
+    _BEHAVIOR_PRIORITY_ORDER: dict[str, int] = {
+        "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
+        "Privilege Escalation": 3, "Network Communication": 4,
+        "Anti-Debugging": 5, "Cryptography": 6,
+        "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
+    }
+
+    def _run_behavior_keyword_search(
+        self,
+        active_behaviors: list[str],
+        seen_ids: set[str],
+        all_cves: list[dict],
+        label: str = "",
+    ) -> None:
+        """Search NVD by behavior-derived keywords and append new CVEs to all_cves."""
+        top_behaviors = sorted(
+            active_behaviors,
+            key=lambda b: self._BEHAVIOR_PRIORITY_ORDER.get(b, 99),
+        )[:3]
+        if label:
+            print(f"[CWE] Behavior keyword search ({label}, top 3): {top_behaviors}")
+        for behavior in top_behaviors:
+            kw = self._NVD_BEHAVIOR_KEYWORDS.get(behavior)
+            if not kw:
+                continue
+            print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
+            cves = self.nvd_api.search_by_keyword(kw, max_results=5)
+            for c in cves:
+                cid = c.get("cve_id")
+                if cid and cid not in seen_ids:
+                    c["cwe_source"] = f"behavior:{behavior}"
+                    seen_ids.add(cid)
+                    all_cves.append(c)
+        print(f"[CWE] After behavior search: {len(all_cves)} total CVEs")
+
     def _score_relevance(self, cve: dict, active_behaviors: list[str], analysis: dict) -> float:
         """
         Score relevance của CVE dựa trên:
@@ -989,14 +1048,14 @@ class CWEPredictor:
                     cve["matched_cwe_confidence"] = pred["confidence"] if cwe_id else None
                     all_cves.append(cve)
 
-        # Chỉ query NVD với CWE có confidence đủ cao (>= 0.10)
-        cwes_to_query = [p for p in predicted if p["confidence"] >= 0.10][:self.top_cwes]
+        # Chỉ query NVD với CWE có confidence đủ cao (>= 0.30)
+        cwes_to_query = [p for p in predicted if p["confidence"] >= 0.30][:self.top_cwes]
         if not cwes_to_query:
             cwes_to_query = predicted[:1]
 
         skipped = [p["cwe_id"] for p in predicted if p not in cwes_to_query]
         if skipped:
-            print(f"[CWE] Skipping low-confidence CWEs (< 0.10): {', '.join(skipped)}")
+            print(f"[CWE] Skipping low-confidence CWEs (< 0.30): {', '.join(skipped)}")
 
         if targets:
             # Query CWE + target keyword for top 2 targets × filtered CWEs
@@ -1016,52 +1075,13 @@ class CWEPredictor:
                     else:
                         _add_cves(cves, cwe_id, pred)
 
-            # Behavior keyword search — dùng detected behavior categories làm keyword
-            # Cho kết quả liên quan hơn nhiều so với generic CWE query
+            # Behavior keyword search — mỗi behavior lấy tối đa 5 CVE → tối đa 15 CVE
             ember_prob = (analysis.get("ember_behavioral") or {}).get("probability") or 0.0
-            # Behavior keyword search — chỉ query top behaviors có risk cao nhất
-            # Mỗi behavior lấy tối đa 5 CVE → tổng không quá 15 CVE từ behavior search
-            ember_prob = (analysis.get("ember_behavioral") or {}).get("probability") or 0.0
-            _BEHAVIOR_KEYWORDS = {
-                "Code Execution":       "remote code execution windows",
-                "Keylogging":           "keylogger credential theft windows",
-                "Process Injection":    "process injection shellcode windows",
-                "Privilege Escalation": "privilege escalation local windows",
-                "Network Communication": "remote access trojan backdoor",
-                "Anti-Debugging":       "malware evasion anti-analysis",
-                "Cryptography":         "ransomware file encryption",
-                "Registry Manipulation": "registry persistence startup malware",
-                "Service Manipulation": "windows service abuse persistence",
-                "Dynamic Loading":      "dll hijacking injection",
-            }
-            # Priority order: CRITICAL > HIGH > MEDIUM
-            _BEHAVIOR_PRIORITY = {
-                "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
-                "Privilege Escalation": 3, "Network Communication": 4,
-                "Anti-Debugging": 5, "Cryptography": 6,
-                "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
-            }
             active_behaviors = list(analysis.get("imports", {}).get("by_category", {}).keys())
             if active_behaviors and ember_prob >= 0.50:
-                # Chỉ lấy top 3 behaviors quan trọng nhất
-                top_behaviors = sorted(
-                    active_behaviors,
-                    key=lambda b: _BEHAVIOR_PRIORITY.get(b, 99)
-                )[:3]
-                print(f"[CWE] Behavior keyword search (top 3): {top_behaviors}")
-                seen_behavior_ids = {c["cve_id"] for c in all_cves if "cve_id" in c}
-                for behavior in top_behaviors:
-                    kw = _BEHAVIOR_KEYWORDS.get(behavior)
-                    if not kw:
-                        continue
-                    print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
-                    cves = self.nvd_api.search_by_keyword(kw, max_results=5)
-                    new = [c for c in cves if c.get("cve_id") not in seen_behavior_ids]
-                    for c in new:
-                        c["cwe_source"] = f"behavior:{behavior}"
-                        seen_behavior_ids.add(c["cve_id"])
-                        all_cves.append(c)
-                print(f"[CWE] After behavior search: {len(all_cves)} total CVEs")
+                self._run_behavior_keyword_search(
+                    active_behaviors, seen_ids, all_cves, label="with-target"
+                )
         else:
             # No target detected
             _ember_prob_local = (analysis.get("ember_behavioral") or {}).get("probability") or 0.0
@@ -1086,44 +1106,11 @@ class CWEPredictor:
 
             # Behavior keyword search — chạy dựa trên actual suspicious behaviors
             # Không cần gated bởi EMBER, chỉ cần có HIGH/CRITICAL APIs
-            _BEHAVIOR_KEYWORDS_NO_TARGET = {
-                "Code Execution":       "remote code execution windows",
-                "Keylogging":           "keylogger credential theft windows",
-                "Process Injection":    "process injection shellcode windows",
-                "Privilege Escalation": "privilege escalation local windows",
-                "Network Communication": "remote access trojan backdoor",
-                "Anti-Debugging":       "malware evasion anti-analysis",
-                "Cryptography":         "ransomware file encryption",
-                "Registry Manipulation": "registry persistence startup malware",
-                "Service Manipulation": "windows service abuse persistence",
-                "Dynamic Loading":      "dll hijacking injection",
-            }
-            _BEHAVIOR_PRIORITY_NO_TARGET = {
-                "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
-                "Privilege Escalation": 3, "Network Communication": 4,
-                "Anti-Debugging": 5, "Cryptography": 6,
-                "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
-            }
             active_behaviors_local = list(analysis.get("imports", {}).get("by_category", {}).keys())
             if active_behaviors_local:
-                top_behaviors_local = sorted(
-                    active_behaviors_local,
-                    key=lambda b: _BEHAVIOR_PRIORITY_NO_TARGET.get(b, 99)
-                )[:3]
-                print(f"[CWE] Behavior keyword search (no-target, top 3): {top_behaviors_local}")
-                seen_beh_ids = {c["cve_id"] for c in all_cves if "cve_id" in c}
-                for behavior in top_behaviors_local:
-                    kw = _BEHAVIOR_KEYWORDS_NO_TARGET.get(behavior)
-                    if not kw:
-                        continue
-                    print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
-                    cves = self.nvd_api.search_by_keyword(kw, max_results=5)
-                    new = [c for c in cves if c.get("cve_id") not in seen_beh_ids]
-                    for c in new:
-                        c["cwe_source"] = f"behavior:{behavior}"
-                        seen_beh_ids.add(c["cve_id"])
-                        all_cves.append(c)
-                print(f"[CWE] After behavior search: {len(all_cves)} total CVEs")
+                self._run_behavior_keyword_search(
+                    active_behaviors_local, seen_ids, all_cves, label="no-target"
+                )
 
         # Step 4: Relevance scoring + filtering
         active_behaviors = list(analysis.get("imports", {}).get("by_category", {}).keys())
