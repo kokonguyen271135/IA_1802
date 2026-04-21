@@ -6,105 +6,144 @@
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <style>
     body {
-      margin: 0;
-      padding: 24px;
+      margin: 0; padding: 24px;
       background: #eef2f7;
       font-family: 'Segoe UI', Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      display: flex; flex-direction: column; align-items: center;
     }
-    h2 { color: #1a237e; font-size: 20px; margin-bottom: 4px; }
+    h2  { color: #1a237e; font-size: 20px; margin-bottom: 4px; }
     p.sub { color: #666; font-size: 12px; margin-bottom: 20px; }
     .box {
-      background: white;
-      border-radius: 14px;
+      background: white; border-radius: 14px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.10);
       padding: 32px 36px;
-      width: 100%;
-      max-width: 1800px;
+      width: 100%; max-width: 2000px;
       overflow-x: auto;
     }
   </style>
 </head>
 <body>
-  <h2>Software Vulnerability Assessment Tool — System Workflow</h2>
-  <p class="sub">Dựa trên source code thực tế · backend/app.py · _analyze_pe()</p>
-  <div class="box">
-    <div class="mermaid">
+<h2>Software Vulnerability Assessment Tool — System Workflow</h2>
+<p class="sub">Dựa trên source code thực tế · backend/app.py · _analyze_pe()</p>
+<div class="box">
+<div class="mermaid">
 flowchart LR
 
   INPUT(["🖥️ Frontend\nInput\n.exe / .dll / .sys"])
 
-  %% ── Bước 1: Static Analysis ──────────────────────────────
-  SA["① Static Analysis\n━━━━━━━━━━━━━\nRule-based\nPE Headers · Import Table\nSection Entropy\nSuspicious APIs detection\nStrings · Components"]
+  %% ══════════════════════════════════════════
+  %% BƯỚC 1 — STATIC ANALYSIS
+  %% ══════════════════════════════════════════
+  SA["① Static Analysis\n━━━━━━━━━━━━━━━━\nRule-based · PEStaticAnalyzer\n▸ PE Headers, sections, entropy\n▸ Import table → Suspicious APIs\n  với risk: CRITICAL/HIGH/MEDIUM/LOW\n▸ Strings: URL, IP, registry, commands\n▸ Components: OpenSSL, Python, SQLite…\n▸ Static Risk Score 0–100"]
 
-  %% ── Bước 2: EMBER ────────────────────────────────────────
-  EMBER["② AI Behavioral Scoring\n━━━━━━━━━━━━━\nEMBER  XGBoost\n600K PE samples\nAUC = 0.9994\nOutput: probability 0 → 1"]
+  %% ══════════════════════════════════════════
+  %% BƯỚC 2 — EMBER
+  %% ══════════════════════════════════════════
+  EMBER["② AI Behavioral Scoring\n━━━━━━━━━━━━━━━━\nEMBER XGBoost\n▸ 600K PE samples · AUC=0.9994\n▸ 1390 features từ raw bytes\n▸ Output: probability 0.0 → 1.0\n▸ Threshold: 0.51"]
 
-  %% ── Bước 3: CPE Extraction ───────────────────────────────
-  CPE["③ CPE Extraction\n━━━━━━━━━━━━━\nRule-based  200+ patterns\n+ AI FAISS Semantic Match\nOutput: vendor · product · version"]
+  %% ══════════════════════════════════════════
+  %% BƯỚC 3 — CPE EXTRACTION
+  %% ══════════════════════════════════════════
+  CPE["③ CPE Extraction\n━━━━━━━━━━━━━━━━\n▸ Rule-based: 200+ KNOWN_PATTERNS\n  (ProductName + CompanyName)\n▸ Fallback: AI FAISS Semantic Match\n  min_score=0.50 · confidence: high/medium\n▸ Output: vendor · product · version · cpe"]
 
   INPUT --> SA --> EMBER --> CPE
 
-  %% ── Hướng 1/2: CPE-based CVE lookup ─────────────────────
-  CPE -->|"✅ CPE\nxác định được"| NVD_CPE["④ Query NVD by CPE\n━━━━━━━━━━━━━\nmax 50 CVEs\nKeyword fallback nếu 0 kết quả\n(product + version)"]
+  %% ══════════════════════════════════════════
+  %% NHÁNH A — CPE FOUND → NVD by CPE
+  %% ══════════════════════════════════════════
+  NVD_CPE["④a Query NVD by CPE\n━━━━━━━━━━━━━━━━\n▸ search_by_cpe(cpe, max=50)\n▸ Keyword fallback nếu 0 CVE:\n  'product version' → 'product'"]
 
-  NVD_CPE --> EN1["⑤ AI Enrich  Hướng 1/2\n━━━━━━━━━━━━━\nBERT Severity Ensemble\nSecBERT + XGBoost  Acc=97.94%\n+\nSecBERT Relevance Scoring\nFilter MINIMAL / LOW"]
+  CPE -->|"✅ CPE\nresolved"| NVD_CPE
 
-  %% ── Gate Hướng 3 ─────────────────────────────────────────
-  GATE{{"⑥ Gate  Hướng 3\n━━━━━━━━━━━━━\n① has_definite_cpe? → SKIP\n② EMBER < 0.50\n    AND no HIGH/CRITICAL API?\n    → SKIP\n③ Else → RUN CWE"}}
+  COMP["④b Component CVE Lookup\n━━━━━━━━━━━━━━━━\n▸ Mỗi embedded component\n  build CPE → query NVD\n▸ max 20 CVE/component\n▸ Dedup vs CPE CVEs\n▸ Lưu riêng: component_vulnerabilities"]
+
+  NVD_CPE --> COMP
+
+  ENRICH_CPE["⑤ AI Enrich  Hướng 1/2\n━━━━━━━━━━━━━━━━\n▸ BERT Severity Ensemble\n  SecBERT weight=1.00\n  XGBoost weight=0.85\n  Acc=97.94%\n▸ SecBERT Relevance Scoring\n  Cosine similarity vs behavior profile\n  Filter LOW + MINIMAL relevance"]
+
+  COMP --> ENRICH_CPE
+
+  RISK1["⑥ AI Risk Score  1st\n━━━━━━━━━━━━━━━━\nEMBER prob × 100 = score\nCVE relevance labels\n= context factors only"]
+
+  ENRICH_CPE --> RISK1
+  EMBER      -->|"probability"| RISK1
+
+  %% ══════════════════════════════════════════
+  %% NHÁNH B — HƯỚNG 3 GATE
+  %% ══════════════════════════════════════════
+  GATE{{"⑦ Gate  Hướng 3\n━━━━━━━━━━━━━━━━\nSKIP nếu:\n  ① has_definite_cpe = True\n  ② EMBER < 0.50\n     AND không có\n     HIGH/CRITICAL API\n\nRUN nếu:\n  không có definite CPE\n  AND\n  EMBER ≥ 0.50\n  OR HIGH/CRITICAL API"}}
 
   CPE   -->|"has_definite_cpe"| GATE
-  SA    -->|"HIGH / CRITICAL\nsuspicious APIs"| GATE
   EMBER -->|"probability"| GATE
+  SA    -->|"HIGH / CRITICAL\nsuspicious APIs"| GATE
 
   GATE -->|"SKIP"| SKIP(["⏭️ Bỏ qua\nHướng 3"])
-  GATE -->|"RUN"| CWE["⑦ CWE Prediction\n━━━━━━━━━━━━━\nSecBERT fine-tuned\n78K CVE-CWE pairs\nAcc=86.59%  F1=85.58%\nTop-5 CWE classes"]
 
-  CWE --> NVD_CWE["⑧ Query NVD by CWE\n━━━━━━━━━━━━━\nCVEs theo loại lỗ hổng"]
+  %% ══════════════════════════════════════════
+  %% NHÁNH B (tiếp) — CWE PREDICTION
+  %% ══════════════════════════════════════════
+  CWE["⑧ CWE Prediction\n━━━━━━━━━━━━━━━━\nSecBERT fine-tuned\n▸ 78K CVE-CWE pairs từ NVD\n▸ Acc=86.59% · F1=85.58%\n▸ Top-5 CWE classes\n▸ Fallback: rule-based\n  BEHAVIOR_TO_CWE mapping"]
 
-  NVD_CWE --> EN2["⑨ AI Enrich  Hướng 3\n━━━━━━━━━━━━━\nBERT Severity Ensemble\n+\nSecBERT Relevance Scoring\nSort DESC · Top 10"]
+  GATE -->|"RUN"| CWE
 
-  %% ── Merge ────────────────────────────────────────────────
-  EN1  --> MERGE["⑩ Merge & Dedup\n━━━━━━━━━━━━━\nNếu có CVE từ CPE:\n  merge CWE CVEs nếu relevance ≥ 0.4\nNếu không có CVE từ CPE:\n  dùng toàn bộ CWE CVEs\nDedup by CVE-ID · max 50"]
-  EN2  --> MERGE
+  NVD_CWE["⑨ Query NVD by CWE\n━━━━━━━━━━━━━━━━\n▸ Nếu có detected target:\n  CWE + target keyword\n▸ Nếu không có target:\n  CWE generic + behavior keywords\n▸ Relevance score nội bộ\n  (windows terms, API match, CVSS)"]
 
-  %% ── Risk + Recommendations ───────────────────────────────
-  RISK["⑪ Risk Aggregation\n━━━━━━━━━━━━━\nEMBER prob × 100 = AI Risk Score\nCVE relevance labels làm context\nLevel: CLEAN/LOW/MEDIUM/HIGH/CRITICAL"]
-  REC["⑫ Recommendations\n━━━━━━━━━━━━━\nRule-based\nCVSS vector parsing\nAV · AC · PR · UI · C · I · A\n12 threat type keywords"]
+  CWE --> NVD_CWE
 
-  MERGE --> RISK
-  EMBER -->|"probability"| RISK
-  RISK  --> REC
-  REC   --> OUTPUT(["🖥️ Frontend\nOutput Result\nUI Dashboard"])
+  ENRICH_CWE["⑩ AI Enrich  Hướng 3\n━━━━━━━━━━━━━━━━\n▸ BERT Severity Ensemble\n▸ SecBERT Relevance Scoring\n▸ Sort DESC · giữ Top 10"]
 
-  %% ── Styling ──────────────────────────────────────────────
-  style INPUT   fill:#1a237e,color:#fff,stroke:#1a237e
-  style OUTPUT  fill:#1a237e,color:#fff,stroke:#1a237e
-  style SA      fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-  style EMBER   fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-  style CPE     fill:#fff3e0,stroke:#e65100,stroke-width:2px
-  style NVD_CPE fill:#e0f7fa,stroke:#006064,stroke-width:1px
-  style NVD_CWE fill:#e0f7fa,stroke:#006064,stroke-width:1px
-  style EN1     fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
-  style EN2     fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
-  style GATE    fill:#ffebee,stroke:#c62828,stroke-width:2px
-  style CWE     fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
-  style MERGE   fill:#fffde7,stroke:#f57f17,stroke-width:2px
-  style RISK    fill:#fce4ec,stroke:#880e4f,stroke-width:1px
-  style REC     fill:#f9fbe7,stroke:#558b2f,stroke-width:1px
-  style SKIP    fill:#eceff1,stroke:#546e7a,stroke-dasharray:5 5
-    </div>
-  </div>
+  NVD_CWE --> ENRICH_CWE
 
-  <script>
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: 'default',
-      flowchart: { curve: 'basis', padding: 20, nodeSpacing: 40, rankSpacing: 60 },
-      fontSize: 13
-    });
-  </script>
+  %% ══════════════════════════════════════════
+  %% MERGE
+  %% ══════════════════════════════════════════
+  MERGE["⑪ Merge & Dedup\n━━━━━━━━━━━━━━━━\nScenario A: Không có CPE CVEs\n  → dùng toàn bộ CWE CVEs\n  cve_source = 'cwe_behavior_prediction'\n\nScenario B: Có CPE CVEs\n  → merge CWE CVEs nếu relevance ≥ 0.4\n  Sort by relevance + CVSS DESC\n  cve_source = 'cpe_and_cwe_behavior'\n\nDedup by CVE-ID · max 50"]
+
+  RISK1       --> MERGE
+  ENRICH_CWE  --> MERGE
+
+  %% ══════════════════════════════════════════
+  %% RISK RECALCULATE + RECOMMENDATIONS
+  %% ══════════════════════════════════════════
+  RISK2["⑫ AI Risk Score  Recalculate\n━━━━━━━━━━━━━━━━\nEMBER prob × 100 = score 0–100\nLevel: CRITICAL/HIGH/MEDIUM/LOW/CLEAN\nCVE relevance = context factors only"]
+
+  MERGE  --> RISK2
+  EMBER  -->|"probability"| RISK2
+
+  REC["⑬ Recommendations\n━━━━━━━━━━━━━━━━\nRule-based · CVSS vector parsing\n▸ AV · AC · PR · UI · C · I · A\n▸ 12 threat type keywords\n  RCE, BoF, PrivEsc, AuthBypass…\n▸ Max 8 recommendations\n▸ Max 6 top threats"]
+
+  RISK2  --> REC
+  REC    --> OUTPUT(["🖥️ Frontend\nOutput Result\nUI Dashboard"])
+
+  %% ══════════════════════════════════════════
+  %% STYLING
+  %% ══════════════════════════════════════════
+  style INPUT       fill:#1a237e,color:#fff,stroke:#1a237e
+  style OUTPUT      fill:#1a237e,color:#fff,stroke:#1a237e
+  style SA          fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  style EMBER       fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  style CPE         fill:#fff3e0,stroke:#e65100,stroke-width:2px
+  style NVD_CPE     fill:#e0f7fa,stroke:#006064,stroke-width:1px
+  style COMP        fill:#e0f7fa,stroke:#006064,stroke-width:1px,stroke-dasharray:4 4
+  style ENRICH_CPE  fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  style RISK1       fill:#fce4ec,stroke:#880e4f,stroke-width:1px
+  style GATE        fill:#ffebee,stroke:#c62828,stroke-width:2px
+  style CWE         fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+  style NVD_CWE     fill:#e0f7fa,stroke:#006064,stroke-width:1px
+  style ENRICH_CWE  fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  style MERGE       fill:#fffde7,stroke:#f57f17,stroke-width:2px
+  style RISK2       fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+  style REC         fill:#f9fbe7,stroke:#558b2f,stroke-width:1px
+  style SKIP        fill:#eceff1,stroke:#546e7a,stroke-dasharray:5 5
+</div>
+</div>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { curve: 'basis', padding: 20, nodeSpacing: 50, rankSpacing: 70 },
+    fontSize: 13
+  });
+</script>
 </body>
 </html>
