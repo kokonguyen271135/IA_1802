@@ -151,6 +151,12 @@ CWE_CATALOG: dict[str, tuple[str, str, float]] = {
         "from or write to a memory location that is outside of the intended boundary.",
         0.90,
     ),
+    "CWE-20": (
+        "Improper Input Validation",
+        "The product receives input or data, but it does not validate or incorrectly "
+        "validates that the input to ensure that it has the required properties.",
+        0.60,
+    ),
     "CWE-362": (
         "Concurrent Execution using Shared Resource with Improper Synchronization",
         "The program contains a code sequence that can run concurrently with other "
@@ -268,7 +274,8 @@ def predict_cwe(analysis: dict, top_k: int = 5) -> list[dict]:
     triggered: dict[str, list[str]] = {}
 
     def _add(cwe_id: str, conf: float, reason: str) -> None:
-        scores[cwe_id] = max(scores.get(cwe_id, 0.0), conf)
+        current = scores.get(cwe_id, 0.0)
+        scores[cwe_id] = min(0.99, current + conf * (1 - current))
         triggered.setdefault(cwe_id, []).append(reason)
 
     # ── 1. Import behavior categories ─────────────────────────────────────────
@@ -509,70 +516,6 @@ class CWEPredictor:
             result['cwe_analysis'] = predictor.predict_and_fetch(pe_analysis)
     """
 
-    # ── Target software detection maps ────────────────────────────────────────
-
-    _TARGET_DLL_MAP: dict[str, tuple[str, str]] = {
-        "mso":        ("microsoft", "office"),
-        "vbe7":       ("microsoft", "office"),
-        "winword":    ("microsoft", "office"),
-        "excel":      ("microsoft", "office"),
-        "powerpnt":   ("microsoft", "office"),
-        "mshtml":     ("microsoft", "internet_explorer"),
-        "ieframe":    ("microsoft", "internet_explorer"),
-        "jscript":    ("microsoft", "internet_explorer"),
-        "jscript9":   ("microsoft", "internet_explorer"),
-        "acrobat":    ("adobe", "acrobat"),
-        "acrord32":   ("adobe", "acrobat_reader"),
-        "jvm":        ("oracle", "java"),
-        "java":       ("oracle", "java"),
-        "chrome":     ("google", "chrome"),
-        "xul":        ("mozilla", "firefox"),
-        "nss3":       ("mozilla", "firefox"),
-        "win32k":     ("microsoft", "windows"),
-        "winspool":   ("microsoft", "windows"),
-        "lsasrv":     ("microsoft", "windows"),
-        "ntdll":      ("microsoft", "windows"),
-        "kernelbase": ("microsoft", "windows"),
-        "advapi32":   ("microsoft", "windows"),
-        "flash":      ("adobe", "flash_player"),
-        "clr":        ("microsoft", "net_framework"),
-        "mscorlib":   ("microsoft", "net_framework"),
-    }
-
-    _TARGET_REGISTRY_PATTERNS: list[tuple[str, tuple[str, str]]] = [
-        (r"Software\\Microsoft\\Office",             ("microsoft", "office")),
-        (r"Software\\Adobe\\Acrobat",                ("adobe", "acrobat")),
-        (r"Software\\Adobe\\Adobe Acrobat",          ("adobe", "acrobat")),
-        (r"Software\\Google\\Chrome",                ("google", "chrome")),
-        (r"Software\\Mozilla\\Firefox",              ("mozilla", "firefox")),
-        (r"Software\\Oracle\\Java",                  ("oracle", "java")),
-        (r"Software\\Microsoft\\Internet Explorer",  ("microsoft", "internet_explorer")),
-        (r"Software\\Microsoft\\Windows NT",         ("microsoft", "windows")),
-        (r"Software\\Microsoft\\\.NETFramework",     ("microsoft", "net_framework")),
-    ]
-
-    _TARGET_PATH_PATTERNS: list[tuple[str, tuple[str, str]]] = [
-        (r"Microsoft\s+Office",         ("microsoft", "office")),
-        (r"Adobe\\Acrobat",             ("adobe", "acrobat")),
-        (r"Adobe\\Reader",              ("adobe", "acrobat_reader")),
-        (r"Google\\Chrome",             ("google", "chrome")),
-        (r"Mozilla\s+Firefox",          ("mozilla", "firefox")),
-        (r"Java\\jre",                  ("oracle", "java")),
-        (r"Internet\s+Explorer",        ("microsoft", "internet_explorer")),
-        (r"Microsoft\s+Visual\s+Studio",("microsoft", "visual_studio")),
-        (r"\\Windows\\System32",        ("microsoft", "windows")),
-    ]
-
-    _TARGET_STRING_PATTERNS: list[tuple[str, tuple[str, str]]] = [
-        (r"Microsoft\s+Office\s+\d+",       ("microsoft", "office")),
-        (r"Adobe\s+Acrobat\s+[\d\.]+",      ("adobe", "acrobat")),
-        (r"Adobe\s+Reader\s+[\d\.]+",       ("adobe", "acrobat_reader")),
-        (r"Google\s+Chrome\s+[\d\.]+",      ("google", "chrome")),
-        (r"Mozilla\s+Firefox\s+[\d\.]+",    ("mozilla", "firefox")),
-        (r"Java\(TM\)\s+SE",                ("oracle", "java")),
-        (r"Internet\s+Explorer\s+[\d\.]+",  ("microsoft", "internet_explorer")),
-    ]
-
     def __init__(self, nvd_api, max_cves_per_cwe: int = 20, top_cwes: int = 3):
         """
         Parameters
@@ -629,6 +572,26 @@ class CWEPredictor:
         "buffer overflow", "memory corruption", "use-after-free",
         "out-of-bounds", "privilege escalation", "elevation of privilege",
     ]
+
+    _BEHAVIOR_SEARCH_KEYWORDS: dict[str, str] = {
+        "Code Execution":        "remote code execution windows",
+        "Keylogging":            "keylogger credential theft windows",
+        "Process Injection":     "process injection shellcode windows",
+        "Privilege Escalation":  "privilege escalation local windows",
+        "Network Communication": "remote access trojan backdoor",
+        "Anti-Debugging":        "malware evasion anti-analysis",
+        "Cryptography":          "ransomware file encryption",
+        "Registry Manipulation": "registry persistence startup malware",
+        "Service Manipulation":  "windows service abuse persistence",
+        "Dynamic Loading":       "dll hijacking injection",
+    }
+
+    _BEHAVIOR_SEARCH_PRIORITY: dict[str, int] = {
+        "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
+        "Privilege Escalation": 3, "Network Communication": 4,
+        "Anti-Debugging": 5, "Cryptography": 6,
+        "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
+    }
 
     # ── Target software detection ─────────────────────────────────────────────
     # DLL name (lowercase, no .dll) → (vendor_keyword, product_keyword)
@@ -989,14 +952,15 @@ class CWEPredictor:
                     cve["matched_cwe_confidence"] = pred["confidence"] if cwe_id else None
                     all_cves.append(cve)
 
-        # Chỉ query NVD với CWE có confidence đủ cao (>= 0.10)
-        cwes_to_query = [p for p in predicted if p["confidence"] >= 0.10][:self.top_cwes]
+        # Chỉ query NVD với CWE có confidence đủ cao (>= 0.40)
+        # Baseline CWEs (0.25–0.30) không đủ — phải có behavioral signal thực sự
+        cwes_to_query = [p for p in predicted if p["confidence"] >= 0.40][:self.top_cwes]
         if not cwes_to_query:
             cwes_to_query = predicted[:1]
 
         skipped = [p["cwe_id"] for p in predicted if p not in cwes_to_query]
         if skipped:
-            print(f"[CWE] Skipping low-confidence CWEs (< 0.10): {', '.join(skipped)}")
+            print(f"[CWE] Skipping low-confidence CWEs (< 0.40): {', '.join(skipped)}")
 
         if targets:
             # Query CWE + target keyword for top 2 targets × filtered CWEs
@@ -1016,42 +980,18 @@ class CWEPredictor:
                     else:
                         _add_cves(cves, cwe_id, pred)
 
-            # Behavior keyword search — dùng detected behavior categories làm keyword
-            # Cho kết quả liên quan hơn nhiều so với generic CWE query
-            ember_prob = (analysis.get("ember_behavioral") or {}).get("probability") or 0.0
             # Behavior keyword search — chỉ query top behaviors có risk cao nhất
-            # Mỗi behavior lấy tối đa 5 CVE → tổng không quá 15 CVE từ behavior search
             ember_prob = (analysis.get("ember_behavioral") or {}).get("probability") or 0.0
-            _BEHAVIOR_KEYWORDS = {
-                "Code Execution":       "remote code execution windows",
-                "Keylogging":           "keylogger credential theft windows",
-                "Process Injection":    "process injection shellcode windows",
-                "Privilege Escalation": "privilege escalation local windows",
-                "Network Communication": "remote access trojan backdoor",
-                "Anti-Debugging":       "malware evasion anti-analysis",
-                "Cryptography":         "ransomware file encryption",
-                "Registry Manipulation": "registry persistence startup malware",
-                "Service Manipulation": "windows service abuse persistence",
-                "Dynamic Loading":      "dll hijacking injection",
-            }
-            # Priority order: CRITICAL > HIGH > MEDIUM
-            _BEHAVIOR_PRIORITY = {
-                "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
-                "Privilege Escalation": 3, "Network Communication": 4,
-                "Anti-Debugging": 5, "Cryptography": 6,
-                "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
-            }
             active_behaviors = list(analysis.get("imports", {}).get("by_category", {}).keys())
             if active_behaviors and ember_prob >= 0.50:
-                # Chỉ lấy top 3 behaviors quan trọng nhất
                 top_behaviors = sorted(
                     active_behaviors,
-                    key=lambda b: _BEHAVIOR_PRIORITY.get(b, 99)
+                    key=lambda b: self._BEHAVIOR_SEARCH_PRIORITY.get(b, 99)
                 )[:3]
                 print(f"[CWE] Behavior keyword search (top 3): {top_behaviors}")
                 seen_behavior_ids = {c["cve_id"] for c in all_cves if "cve_id" in c}
                 for behavior in top_behaviors:
-                    kw = _BEHAVIOR_KEYWORDS.get(behavior)
+                    kw = self._BEHAVIOR_SEARCH_KEYWORDS.get(behavior)
                     if not kw:
                         continue
                     print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
@@ -1085,35 +1025,16 @@ class CWEPredictor:
                 print(f"[CWE] No target identified, EMBER={_ember_prob_local*100:.1f}% < 50% — skipping generic CWE query")
 
             # Behavior keyword search — chạy dựa trên actual suspicious behaviors
-            # Không cần gated bởi EMBER, chỉ cần có HIGH/CRITICAL APIs
-            _BEHAVIOR_KEYWORDS_NO_TARGET = {
-                "Code Execution":       "remote code execution windows",
-                "Keylogging":           "keylogger credential theft windows",
-                "Process Injection":    "process injection shellcode windows",
-                "Privilege Escalation": "privilege escalation local windows",
-                "Network Communication": "remote access trojan backdoor",
-                "Anti-Debugging":       "malware evasion anti-analysis",
-                "Cryptography":         "ransomware file encryption",
-                "Registry Manipulation": "registry persistence startup malware",
-                "Service Manipulation": "windows service abuse persistence",
-                "Dynamic Loading":      "dll hijacking injection",
-            }
-            _BEHAVIOR_PRIORITY_NO_TARGET = {
-                "Code Execution": 0, "Keylogging": 1, "Process Injection": 2,
-                "Privilege Escalation": 3, "Network Communication": 4,
-                "Anti-Debugging": 5, "Cryptography": 6,
-                "Registry Manipulation": 7, "Service Manipulation": 8, "Dynamic Loading": 9,
-            }
             active_behaviors_local = list(analysis.get("imports", {}).get("by_category", {}).keys())
             if active_behaviors_local:
                 top_behaviors_local = sorted(
                     active_behaviors_local,
-                    key=lambda b: _BEHAVIOR_PRIORITY_NO_TARGET.get(b, 99)
+                    key=lambda b: self._BEHAVIOR_SEARCH_PRIORITY.get(b, 99)
                 )[:3]
                 print(f"[CWE] Behavior keyword search (no-target, top 3): {top_behaviors_local}")
                 seen_beh_ids = {c["cve_id"] for c in all_cves if "cve_id" in c}
                 for behavior in top_behaviors_local:
-                    kw = _BEHAVIOR_KEYWORDS_NO_TARGET.get(behavior)
+                    kw = self._BEHAVIOR_SEARCH_KEYWORDS.get(behavior)
                     if not kw:
                         continue
                     print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
