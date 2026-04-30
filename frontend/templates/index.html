@@ -1,0 +1,406 @@
+<!-- frontend/templates/index.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVE-CPE Vulnerability Scanner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        // Apply saved theme ASAP to prevent flash
+        (function() {
+            try {
+                var saved = localStorage.getItem('theme');
+                var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                var theme = saved || (prefersDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (e) {}
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <button class="theme-toggle" id="themeToggle" type="button"
+                    aria-label="Toggle dark mode" title="Toggle dark mode">
+                <i class="fas fa-moon" aria-hidden="true"></i>
+            </button>
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-shield-alt" aria-hidden="true"></i>
+                    <h1>CVE-CPE Vulnerability Scanner</h1>
+                </div>
+                <p class="subtitle">Software Vulnerability Assessment Tool - NVD Database</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs" role="tablist">
+                <button class="tab-btn active" onclick="showTab('upload')" role="tab">
+                    <i class="fas fa-upload" aria-hidden="true"></i> Upload File
+                </button>
+                <button class="tab-btn" onclick="showTab('search')" role="tab">
+                    <i class="fas fa-search" aria-hidden="true"></i> Search Software
+                </button>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="upload-tab" class="tab-content active">
+                <div class="upload-section">
+                    <div class="upload-box" id="uploadBox">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop File Here</h3>
+                        <p>or click to browse</p>
+                        <input type="file" id="fileInput" accept=".exe,.dll,.sys" hidden>
+                        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                    
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <h4><i class="fas fa-file"></i> Selected File</h4>
+                        <p id="fileName"></p>
+                        <button class="btn btn-success" onclick="analyzePE()">
+                            <i class="fas fa-search"></i> Scan
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PE Loading -->
+                <div class="loading" id="peLoading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Resolving software identity and querying CVE data...</p>
+                </div>
+
+                <!-- PE Error -->
+                <div class="error" id="peError" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p id="peErrorMessage"></p>
+                </div>
+
+                <!-- PE Results -->
+                <div id="peResults" style="display: none;">
+
+                    <!-- Risk Banner -->
+                    <div class="risk-banner" id="riskBanner">
+                        <div class="risk-icon"><i class="fas fa-shield-alt"></i></div>
+                        <div class="risk-info">
+                            <div class="risk-level" id="riskLevel">CLEAN</div>
+                            <div class="risk-score" id="riskScore">Overall Match Assessment</div>
+                        </div>
+                        <div class="risk-factors" id="riskFactors"></div>
+                    </div>
+
+                    <!-- Embedded Components (vulnerability-focused) -->
+                    <div class="pe-card pe-card-full" id="componentsCard" style="display:none;">
+                        <h4><i class="fas fa-puzzle-piece" aria-hidden="true"></i> Detected Embedded Components
+                            <span class="card-subtitle">version strings detected inside binary</span>
+                        </h4>
+                        <div id="componentsBody"></div>
+                    </div>
+
+                    <!-- Advanced Behavioral Signal Summary (hidden in matcher-focused UI) -->
+                    <div class="pe-card pe-card-full" id="codebertCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-brain" aria-hidden="true"></i> Advanced Behavioral Signal Summary
+                            <span class="ai-powered-tag">microsoft/codebert-base</span>
+                        </h4>
+                        <div class="codebert-score-row" id="codebertScoreRow">
+                            <div class="codebert-score-label">Signal Similarity Score</div>
+                            <div class="codebert-bar-wrap">
+                                <div class="codebert-bar" id="codebertBar"></div>
+                            </div>
+                            <div class="codebert-score-value" id="codebertScoreValue">0.00</div>
+                            <div class="codebert-confidence" id="codebertConfidence"></div>
+                        </div>
+                        <p class="codebert-summary" id="codebertSummary"></p>
+                        <div id="codebertPatterns"></div>
+                    </div>
+
+                    <!-- SecBERT Behavior Profile (hidden in matcher-focused UI) -->
+                    <div class="pe-card pe-card-full" id="secbertProfileCard" style="display:none;">
+                        <h4>
+                            <i class="fas fa-project-diagram" aria-hidden="true"></i> SecBERT Behavior Profile
+                            <span class="ai-powered-tag">jackaduma/SecBERT</span>
+                        </h4>
+                        <p class="secbert-profile-text" id="secbertProfileText"></p>
+                    </div>
+
+                    <!-- Technical Details (collapsed by default) -->
+                    <div id="technicalDetailsContainer">
+                        <div class="tech-toggle" onclick="toggleTechDetails()" role="button" tabindex="0">
+                            <i class="fas fa-chevron-right" id="techDetailsIcon" aria-hidden="true"></i>
+                            Technical Details — File Info, PE Header, Sections, Imports, Strings
+                        </div>
+                        <div id="techDetailsBody" style="display:none;">
+                            <!-- Info Cards -->
+                            <div class="pe-info-grid">
+                                <div class="pe-card">
+                                    <h4><i class="fas fa-file-alt"></i> File Information</h4>
+                                    <table class="pe-table">
+                                        <tr><td>Filename</td><td id="peInfoName">-</td></tr>
+                                        <tr><td>Size</td><td id="peInfoSize">-</td></tr>
+                                        <tr><td>MD5</td><td id="peInfoMD5" class="hash-cell">-</td></tr>
+                                        <tr><td>SHA1</td><td id="peInfoSHA1" class="hash-cell">-</td></tr>
+                                        <tr><td>SHA256</td><td id="peInfoSHA256" class="hash-cell">-</td></tr>
+                                    </table>
+                                </div>
+                                <div class="pe-card">
+                                    <h4><i class="fas fa-cog"></i> PE Header</h4>
+                                    <table class="pe-table" id="peHeaderTable">
+                                        <tr><td colspan="2" style="color:#9ca3af">Not a PE file or header unavailable</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                            <!-- Sections -->
+                            <div class="pe-card pe-card-full">
+                                <h4><i class="fas fa-layer-group"></i> Sections</h4>
+                                <div id="peSectionsBody"></div>
+                            </div>
+                            <!-- Suspicious Imports -->
+                            <div class="pe-card pe-card-full" id="peImportsCard">
+                                <h4><i class="fas fa-exclamation-circle"></i> Suspicious Imports</h4>
+                                <div id="peImportsBody"></div>
+                            </div>
+                            <!-- Extracted Strings -->
+                            <div class="pe-card pe-card-full" id="peStringsCard">
+                                <h4><i class="fas fa-font"></i> Extracted Strings</h4>
+                                <div id="peStringsBody"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Matched CVEs -->
+                    <div class="pe-card pe-card-full" id="peCVECard">
+                        <h4><i class="fas fa-bug" aria-hidden="true"></i> Matched CVEs
+                            <span id="peCPEBadge" class="cpe-badge" style="display:none;"></span>
+                        </h4>
+
+                        <!-- CPE info -->
+                        <div id="peCPEInfo" class="cpe-info-wrap" style="display:none;">
+                            <div class="cpe-display">
+                                <strong>CPE:</strong>
+                                <code id="peCPEString"></code>
+                            </div>
+                            <small id="peCPEMeta"></small>
+                        </div>
+
+                        <!-- CVE stats -->
+                        <div class="stats-grid" id="peCVEStats" style="display:none;">
+                            <div class="stat-card">
+                                <i class="fas fa-bug"></i>
+                                <h3 id="peCVETotal">0</h3><p>Total CVEs</p>
+                            </div>
+                            <div class="stat-card critical">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h3 id="peCVECritical">0</h3><p>Critical</p>
+                            </div>
+                            <div class="stat-card high">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <h3 id="peCVEHigh">0</h3><p>High</p>
+                            </div>
+                            <div class="stat-card medium">
+                                <i class="fas fa-minus-circle"></i>
+                                <h3 id="peCVEMedium">0</h3><p>Medium</p>
+                            </div>
+                            <div class="stat-card low">
+                                <i class="fas fa-check-circle"></i>
+                                <h3 id="peCVELow">0</h3><p>Low</p>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-chart-line"></i>
+                                <h3 id="peCVEAvg">0</h3><p>Avg CVSS</p>
+                            </div>
+                        </div>
+
+                        <!-- AI Analysis (PE tab) -->
+                        <div id="peAiPanel" style="display:none;" class="ai-panel">
+                            <div class="ai-panel-header">
+                                <i class="fas fa-robot"></i>
+                                <span>CVE Match Assessment</span>
+                                <span id="peAiOverallRiskBadge" class="ai-risk-badge"></span>
+                            </div>
+                            <p id="peAiRiskSummary" class="ai-risk-summary"></p>
+                            <div id="pePatchDecision" class="patch-decision" style="display:none;"></div>
+                            <div class="ai-columns">
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-bolt"></i> Key Weakness Themes</h4>
+                                    <ul id="peAiTopThreats" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-wrench"></i> Recommended Actions</h4>
+                                    <ul id="peAiRecommendations" class="ai-list"></ul>
+                                </div>
+                                <div class="ai-col">
+                                    <h4><i class="fas fa-network-wired"></i> Evidence Notes</h4>
+                                    <div id="peAiAttackVectors" class="ai-vectors"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CVE list -->
+                        <div id="peCVEList">
+                            <div class="empty-state">
+                                <i class="fas fa-flask" aria-hidden="true"></i>
+                                <h4>No scan yet</h4>
+                                <p>Confirmed CVE matches and exploratory weakness hints will appear here after analysis.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Export -->
+                    <div class="export-section" style="display:none;">
+                        <button class="btn btn-secondary" onclick="exportPEJSON()">
+                            <i class="fas fa-download"></i> Export JSON
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="search-tab" class="tab-content">
+                <div class="search-section">
+                    <div class="search-form">
+                        <div class="form-group">
+                            <label><i class="fas fa-laptop-code"></i> Software Name *</label>
+                            <input type="text" id="softwareName" placeholder="e.g., WinRAR, Apache, OpenSSL" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-tag"></i> Version (Optional)</label>
+                            <input type="text" id="softwareVersion" placeholder="e.g., 6.0, 2.4.49">
+                        </div>
+                        <button class="btn btn-primary" onclick="searchSoftware()">
+                            <i class="fas fa-search"></i> Search Vulnerabilities
+                        </button>
+                    </div>
+                    
+                    <div class="search-examples">
+                        <h4>Quick Examples:</h4>
+                        <button class="btn-example" onclick="setExample('WinRAR', '6.0')">WinRAR 6.0</button>
+                        <button class="btn-example" onclick="setExample('Apache HTTP Server', '2.4.49')">Apache 2.4.49</button>
+                        <button class="btn-example" onclick="setExample('OpenSSL', '1.0.1')">OpenSSL 1.0.1</button>
+                        <button class="btn-example" onclick="setExample('MySQL', '5.7.20')">MySQL 5.7.20</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Analyzing...</p>
+            </div>
+
+            <!-- Results -->
+            <div class="results" id="results" style="display: none;">
+                <!-- Software Info -->
+                <div class="result-header">
+                    <h2><i class="fas fa-info-circle"></i> Match Results</h2>
+                    <div class="cpe-display">
+                        <strong>CPE:</strong> <code id="resultCPE"></code>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <i class="fas fa-bug"></i>
+                        <h3 id="statTotal">0</h3>
+                        <p>Total CVEs</p>
+                    </div>
+                    <div class="stat-card critical">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3 id="statCritical">0</h3>
+                        <p>Critical</p>
+                    </div>
+                    <div class="stat-card high">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <h3 id="statHigh">0</h3>
+                        <p>High</p>
+                    </div>
+                    <div class="stat-card medium">
+                        <i class="fas fa-minus-circle"></i>
+                        <h3 id="statMedium">0</h3>
+                        <p>Medium</p>
+                    </div>
+                    <div class="stat-card low">
+                        <i class="fas fa-check-circle"></i>
+                        <h3 id="statLow">0</h3>
+                        <p>Low</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-chart-line"></i>
+                        <h3 id="statAvgCVSS">0</h3>
+                        <p>Avg CVSS</p>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Panel -->
+                <div id="aiAnalysisPanel" style="display:none;" class="ai-panel">
+                    <div class="ai-panel-header">
+                        <i class="fas fa-robot"></i>
+                        <span>CVE Match Assessment</span>
+                        <span id="aiOverallRiskBadge" class="ai-risk-badge"></span>
+                    </div>
+                    <p id="aiRiskSummary" class="ai-risk-summary"></p>
+                    <div id="aiPatchDecision" class="patch-decision" style="display:none;"></div>
+                    <div class="ai-columns">
+                        <div class="ai-col">
+                            <h4><i class="fas fa-bolt"></i> Key Weakness Themes</h4>
+                            <ul id="aiTopThreats" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-wrench"></i> Recommended Actions</h4>
+                            <ul id="aiRecommendations" class="ai-list"></ul>
+                        </div>
+                        <div class="ai-col">
+                            <h4><i class="fas fa-network-wired"></i> Evidence Notes</h4>
+                            <div id="aiAttackVectors" class="ai-vectors"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vulnerabilities List -->
+                <div class="vulnerabilities">
+                    <h3><i class="fas fa-list" aria-hidden="true"></i> Matched CVEs</h3>
+                    <div id="cveList"></div>
+                </div>
+
+                <!-- Export Options -->
+                <div class="export-section" style="display:none;">
+                    <button class="btn btn-secondary" onclick="exportJSON()">
+                        <i class="fas fa-download"></i> Export JSON
+                    </button>
+                    <button class="btn btn-secondary" onclick="exportCSV()">
+                        <i class="fas fa-file-csv"></i> Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error -->
+            <div class="error" id="error" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p id="errorMessage"></p>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 CVE-CPE Vulnerability Scanner | Capstone Project FPTU</p>
+            <p><a href="https://github.com/arguio/SoftwareCPE-CVEMatcher"
+                  target="_blank" rel="noopener noreferrer">
+                <i class="fab fa-github" aria-hidden="true"></i> GitHub
+            </a></p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

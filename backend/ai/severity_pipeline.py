@@ -1,0 +1,157 @@
+"""
+Unified Severity Classification Pipeline
+
+Combines Fine-tuned BERT and XGBoost + CVSS features
+into a single ensemble prediction with confidence-weighted voting.
+
+Models:
+    bert     : Fine-tuned SecBERT             (97.94% accuracy, transformer)
+    xgboost  : XGBoost + CVSS features        (92-96% accuracy, gradient boosting)
+
+Usage:
+    from ai.severity_pipeline import enrich_cves, get_status
+
+    cves = enrich_cves(cves)   # adds 'ai_severity' key to each CVE
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent))
+
+# ── Import individual models (graceful degradation) ──────────────────────────
+try:
+    from bert_severity_classifier import predict as _bert_predict, is_available as _bert_ok
+except Exception:
+    _bert_predict = None
+    _bert_ok = lambda: False
+
+try:
+    from xgboost_severity_classifier import predict as _xgb_predict, is_available as _xgb_ok
+except Exception:
+    _xgb_predict = None
+    _xgb_ok = lambda: False
+
+
+SEVERITY_LEVELS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
+
+# Weights reflect expected model accuracy (higher = more trust)
+_MODEL_WEIGHTS = {
+    'bert':    1.00,   # 97.94% accuracy — fine-tuned SecBERT
+    'xgboost': 0.85,   # 92-96% accuracy — XGBoost + CVSS features
+}
+
+
+def predict_severity(description: str, vector_string: str = '') -> dict | None:
+    """
+    Ensemble severity prediction from all available models.
+
+    Returns:
+        {
+            'predicted_severity': 'CRITICAL'|'HIGH'|'MEDIUM'|'LOW',
+            'confidence': float,          # 0.0 – 1.0
+            'source': 'ensemble'|'bert'|'tfidf'|'zero_shot',
+            'models_used': [str, ...],
+            'individual': {               # raw output from each model
+                'tfidf': {...} | None,
+                'bert':  {...} | None,
+                'zero_shot': {...} | None,
+            },
+            'ensemble_scores': {severity: score, ...}  # only when ensemble
+        }
+        or None if no model is available.
+    """
+    results: dict[str, dict] = {}
+
+    if _bert_ok() and _bert_predict:
+        try:
+            r = _bert_predict(description=description, vector_string=vector_string)
+            if r:
+                results['bert'] = r
+        except Exception:
+            pass
+
+    if _xgb_ok() and _xgb_predict:
+        try:
+            r = _xgb_predict(description=description, vector_string=vector_string)
+            if r:
+                results['xgboost'] = r
+        except Exception:
+            pass
+
+    if not results:
+        return None
+
+    models_used = list(results.keys())
+
+    # ── Single model: return directly ────────────────────────────────────────
+    if len(results) == 1:
+        key = models_used[0]
+        r   = results[key]
+        return {
+            'predicted_severity': r['predicted_severity'],
+            'confidence':         round(r.get('confidence', 0.0), 3),
+            'source':             key,
+            'models_used':        [key],
+            'individual':         {k: results.get(k) for k in ('bert', 'xgboost')},
+        }
+
+    # ── Multi-model ensemble: confidence-weighted voting ─────────────────────
+    sev_scores: dict[str, float] = {s: 0.0 for s in SEVERITY_LEVELS}
+
+    for model, result in results.items():
+        weight = _MODEL_WEIGHTS.get(model, 0.75)
+        conf   = result.get('confidence', 0.5)
+        sev    = result.get('predicted_severity', 'MEDIUM')
+
+        # Primary vote: full weight × confidence on predicted severity
+        if sev in sev_scores:
+            sev_scores[sev] += weight * conf
+
+        # Soft vote: partial weight distributed via probability vector
+        probs = result.get('probabilities', {})
+        for s, p in probs.items():
+            if s in sev_scores:
+                sev_scores[s] += weight * 0.25 * p
+
+    # Normalize
+    total = sum(sev_scores.values()) or 1.0
+    normalized = {k: round(v / total, 4) for k, v in sev_scores.items()}
+
+    best = max(normalized, key=normalized.get)
+
+    return {
+        'predicted_severity': best,
+        'confidence':         normalized[best],
+        'source':             'ensemble',
+        'models_used':        models_used,
+        'individual':         {k: results.get(k) for k in ('bert', 'xgboost')},
+        'ensemble_scores':    normalized,
+    }
+
+
+def enrich_cves(cves: list) -> list:
+    """
+    Add 'ai_severity' key to each CVE dict.
+    Returns the same list (mutated in place).
+    """
+    for cve in cves:
+        pred = predict_severity(
+            description=cve.get('description', ''),
+            vector_string=cve.get('vector_string', ''),
+        )
+        if pred:
+            cve['ai_severity'] = pred
+    return cves
+
+
+def is_available() -> bool:
+    return _bert_ok() or _xgb_ok()
+
+
+def get_status() -> dict:
+    return {
+        'bert':     _bert_ok(),
+        'xgboost':  _xgb_ok(),
+        'available': is_available(),
+    }

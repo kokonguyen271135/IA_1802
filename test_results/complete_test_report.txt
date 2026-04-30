@@ -1,0 +1,11 @@
+================================================================================
+CVE-CPE VULNERABILITY SCANNER - COMPLETE TEST REPORT
+================================================================================
+
+Total Test Suites: 2
+Passed: 2
+Failed: 0
+
+Details:
+  unit_tests: PASSED
+  api_tests: PASSED

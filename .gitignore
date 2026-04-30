@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Uploads (binary files / test samples)
+uploads/
+
+# Windows artifacts
+nul
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env / secrets
+.env
+*.env
+
+# Pytest cache
+.pytest_cache/
+
+# Large AI model files (too big for GitHub >100MB)
+# Recreate with: python untils/run_training_pipeline.py
+models/bert_severity/
+models/bert_cwe/
+models/*.faiss
+models/*.pkl
+
+# Keep evaluation reports and metadata
+!models/*.txt
+!models/*.json
+
+# Training data (large CSV)
+data/training/cve_cwe_train.csv
+data/training/cve_severity_train.csv
+
+# Test samples / malware tools (KHÔNG push lên GitHub)
+dangerousish_samples/

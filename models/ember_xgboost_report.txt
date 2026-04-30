@@ -1,0 +1,45 @@
+EMBER XGBoost Malware Detector - Report
+========================================
+Model            : XGBoost Booster
+Model file       : models/ember2017_xgb.json (5.1MB)
+Dataset          : EMBER 2017 (Elastic Security)
+Reference        : Anderson & Roth, "EMBER: An Open Dataset for Training Static
+                   PE Malware Machine Learning Models", arXiv:1804.04637, 2018
+Training samples : 600,000 PE samples (300K malware + 300K benign)
+Test samples     : 200,000 PE samples (100K malware + 100K benign)
+Features         : 1,390 static PE features
+Threshold        : 0.51
+
+--- Overall Performance (paper-reported) ---
+  ROC-AUC  : 0.9994
+  F1-score : 0.9906
+  Accuracy : 98.99%
+
+--- ROC Curve Metrics (standard for malware detection) ---
+  TPR @ 1.0% FPR  : 99.3%   (bắt được 99.3% malware khi FP rate = 1%)
+  TPR @ 0.1% FPR  : 98.2%   (bắt được 98.2% malware khi FP rate = 0.1%)
+
+  Note: Malware detection papers báo cáo TPR@FPR thay vì per-class
+        precision/recall/F1 vì yêu cầu thực tế là kiểm soát FPR
+        (false alarm rate) ở mức chấp nhận được trong production.
+
+Output mapping:
+
+Feature groups (1,390 total):
+  - ByteHistogram       : byte value distribution (256 features)
+  - ByteEntropyHistogram: entropy per byte region (256 features)
+  - StringExtractor     : printable string statistics (104 features)
+  - GeneralFileInfo     : file size, exports, imports count... (10 features)
+  - HeaderFileInfo      : PE header fields, timestamps (62 features)
+  - SectionInfo         : section names, sizes, entropy (255 features)
+  - ImportsInfo         : imported DLLs and functions (hashed, 256 features)
+  - ExportsInfo         : exported function names (hashed, 128 features)
+  - DataDirectories     : PE data directory entries (15 features)
+  - TLSInfo             : TLS callbacks presence (1 feature)
+  - LoadConfigurationInfo: load config fields (5 features)
+  - RichHeader          : Rich header tool fingerprint (hashed, 16 features)
+  - VersionInfo         : version resource strings (hashed, 16 features)
+  - DebugInfo           : debug directory info (10 features)
+
+Source: EMBER 2017 (H. Anderson & P. Roth, Elastic Security)
+        https://github.com/elastic/ember
