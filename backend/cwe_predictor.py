@@ -423,14 +423,23 @@ class CWEClassifier:
     def is_available(self) -> bool:
         return self._available
 
-    def predict(self, text: str, top_k: int = 5) -> list[dict]:
+    def predict(
+        self,
+        text: str,
+        top_k: int = 5,
+        temperature: float = 1.0,
+        min_threshold: float = 0.15,
+    ) -> list[dict]:
         """
         Predict CWE categories from input text.
 
         Parameters
         ----------
-        text   : behavior profile text (from build_profile_text) or CVE description
-        top_k  : number of CWEs to return
+        text          : behavior profile text or CVE description
+        top_k         : max number of CWEs to return
+        temperature   : softmax temperature (> 1 smooths distribution so
+                        top-2/3 classes surface more easily; default 1.0 = no scaling)
+        min_threshold : only return predictions with confidence >= this value
 
         Returns
         -------
@@ -452,13 +461,19 @@ class CWEClassifier:
             )
             with torch.no_grad():
                 logits = self._model(**inputs).logits
-            probs = F.softmax(logits, dim=-1)[0]
 
-            # Get top-K
+            # Temperature scaling: divide logits before softmax.
+            # T > 1 smooths the distribution so lower-ranked classes
+            # are more likely to cross the min_threshold.
+            scaled = logits / temperature if temperature != 1.0 else logits
+            probs = F.softmax(scaled, dim=-1)[0]
+
             topk_vals, topk_ids = torch.topk(probs, min(top_k, len(self._id2label)))
 
             results = []
             for score, idx in zip(topk_vals.tolist(), topk_ids.tolist()):
+                if score < min_threshold:
+                    break  # topk is sorted DESC — everything after is also below threshold
                 cwe_id = self._id2label.get(idx, f"CWE-{idx}")
                 meta   = CWE_CATALOG.get(cwe_id)
                 results.append({
@@ -582,14 +597,21 @@ class CWEPredictor:
         nvd_api           : NVDAPIv2 instance
         max_cves_per_cwe  : max CVEs fetched per CWE query
         top_cwes          : how many top CWEs to query NVD for
+
+        Environment variables
+        ---------------------
+        CWE_TEMPERATURE   : float, default 1.5 — softmax temperature for ML classifier.
+                            Set to 1.0 to disable scaling (hard argmax behaviour).
         """
+        import os
         self.nvd_api          = nvd_api
         self.max_cves_per_cwe = max_cves_per_cwe
         self.top_cwes         = top_cwes
         self._classifier      = get_cwe_classifier()
+        self.temperature      = float(os.getenv("CWE_TEMPERATURE", "1.5"))
 
         ml_status = "ML model loaded" if self._classifier.is_available() else "rule-based fallback"
-        print(f"[CWE Predictor] Initialized ({ml_status})")
+        print(f"[CWE Predictor] Initialized ({ml_status}, temperature={self.temperature})")
 
     # ── Behavior → keywords mapping for CVE relevance scoring ─────────────────
     _BEHAVIOR_KEYWORDS: dict[str, list[str]] = {
@@ -778,7 +800,12 @@ class CWEPredictor:
                 behavior_text = build_profile_text(analysis)
 
                 if behavior_text and len(behavior_text) > 20:
-                    ml_preds = self._classifier.predict(behavior_text, top_k=self.top_cwes + 2)
+                    ml_preds = self._classifier.predict(
+                        behavior_text,
+                        top_k=self.top_cwes + 2,
+                        temperature=self.temperature,
+                        min_threshold=0.15,
+                    )
                     if ml_preds:
                         return ml_preds, "secbert_cwe_classifier"
             except Exception as e:
@@ -1146,7 +1173,7 @@ class CWEPredictor:
         strict_behavior_conf = 0.75
 
         # Only query NVD for CWEs with sufficient confidence; otherwise return CWE hints only.
-        cwes_to_query = [p for p in predicted if p["confidence"] >= min_cwe_conf][:min(self.top_cwes, 3)]
+        cwes_to_query = [p for p in predicted if p["confidence"] >= min_cwe_conf][:min(self.top_cwes, 5)]
         if not cwes_to_query:
             print(
                 f"[CWE] No CWE prediction reached the exploratory CVE threshold "
