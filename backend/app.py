@@ -77,7 +77,7 @@ app = Flask(
 )
 CORS(app)
 
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
 UPLOAD_DIR = BASE_DIR.parent / 'uploads'
 UPLOAD_DIR.mkdir(exist_ok=True)
