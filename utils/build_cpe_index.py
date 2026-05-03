@@ -1,4 +1,4 @@
-# untils/build_cpe_index.py
+﻿# utils/build_cpe_index.py
 
 """
 Build Semantic CPE Index using sentence-transformers + FAISS.

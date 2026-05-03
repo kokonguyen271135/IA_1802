@@ -1,4 +1,4 @@
-# untils/build_training_data.py
+﻿# utils/build_training_data.py
 
 """
 Build CVE Severity Training Dataset.
@@ -12,7 +12,7 @@ Mode 1 — keyword (default, fast ~10 min):
 Mode 2 — bulk (recommended for thesis, ~30–60 min):
     Downloads ALL CVEs from NVD API v2 without keyword filter.
     Produces ~220k+ records for a much more representative dataset.
-    Usage: python untils/build_training_data.py --bulk
+    Usage: python utils/build_training_data.py --bulk
 
 Output
 ------
@@ -535,9 +535,9 @@ def main():
     print("DONE")
     print("=" * 60)
     print("\nNext steps:")
-    print("  python untils/train_severity_model.py       # TF-IDF + LR (fast)")
-    print("  python untils/finetune_bert_severity.py     # SecBERT fine-tune (GPU)")
-    print("  python untils/run_training_pipeline.py      # run everything at once")
+    print("  python utils/train_severity_model.py       # TF-IDF + LR (fast)")
+    print("  python utils/finetune_bert_severity.py     # SecBERT fine-tune (GPU)")
+    print("  python utils/run_training_pipeline.py      # run everything at once")
 
 
 if __name__ == "__main__":

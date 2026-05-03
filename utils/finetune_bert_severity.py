@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# untils/finetune_bert_severity.py
+﻿#!/usr/bin/env python3
+# utils/finetune_bert_severity.py
 
 """
 Fine-tune SecBERT (or DistilBERT) for CVE Severity Classification
@@ -19,7 +19,7 @@ Alternative: distilbert-base-uncased
   - Good choice when compute is limited (CPU-only)
 
 Dataset  : data/training/cve_severity_train.csv
-           (built by: python untils/build_training_data.py)
+           (built by: python utils/build_training_data.py)
 
 Output files
   - models/bert_severity/      — fine-tuned model + tokenizer
@@ -34,13 +34,13 @@ Class Imbalance Handling
 Usage
 -----
     # Recommended: GPU (CUDA or MPS)
-    python untils/finetune_bert_severity.py
+    python utils/finetune_bert_severity.py
 
     # CPU only (slow, reduce epochs)
-    python untils/finetune_bert_severity.py --model distilbert-base-uncased --epochs 2 --batch 8
+    python utils/finetune_bert_severity.py --model distilbert-base-uncased --epochs 2 --batch 8
 
     # Use SecBERT explicitly
-    python untils/finetune_bert_severity.py --model jackaduma/SecBERT
+    python utils/finetune_bert_severity.py --model jackaduma/SecBERT
 
 Academic References
 -------------------
@@ -478,7 +478,7 @@ def main():
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f"\n[ERR] Dataset not found: {dataset_path}")
-        print("      Run first: python untils/build_training_data.py")
+        print("      Run first: python utils/build_training_data.py")
         sys.exit(1)
 
     print(f"\n[1/3] Loading dataset: {dataset_path}")
@@ -508,7 +508,7 @@ def main():
     print(f"\n[3/3] Done!")
     print(f"      Model saved: {DEFAULT_OUT_DIR}/")
     print(f"      Start app:   python backend/app.py")
-    print(f"      Evaluate:    python untils/evaluate_models.py")
+    print(f"      Evaluate:    python utils/evaluate_models.py")
 
 
 if __name__ == "__main__":

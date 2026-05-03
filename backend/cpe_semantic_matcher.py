@@ -1,4 +1,4 @@
-# backend/cpe_semantic_matcher.py
+﻿# backend/cpe_semantic_matcher.py
 
 """
 Semantic CPE Matcher — inference module.
@@ -7,7 +7,7 @@ Loads:
   models/cpe_index.faiss   — FAISS IndexFlatIP (cosine on normalised vecs)
   models/cpe_meta.pkl      — metadata: {entries: [...], model_name: str}
 
-Built by untils/build_cpe_index.py.
+Built by utils/build_cpe_index.py.
 
 Public API
 ----------
@@ -126,7 +126,7 @@ def _load():
 
     if not _INDEX_PATH.exists() or not _META_PATH.exists():
         print(f"[i] Semantic CPE Matcher: index files not found.")
-        print("    Run:  python untils/build_cpe_index.py")
+        print("    Run:  python utils/build_cpe_index.py")
         return
 
     try:

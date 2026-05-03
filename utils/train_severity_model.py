@@ -1,4 +1,4 @@
-# untils/train_severity_model.py
+﻿# utils/train_severity_model.py
 
 """
 Train CVE Severity Classifier.
@@ -58,7 +58,7 @@ def main():
     # ── Load data ─────────────────────────────────────────────
     if not TRAIN_CSV.exists():
         print(f"\n[ERROR] Training data not found: {TRAIN_CSV}")
-        print("Run first: python untils/build_training_data.py")
+        print("Run first: python utils/build_training_data.py")
         sys.exit(1)
 
     df = pd.read_csv(TRAIN_CSV)
@@ -162,7 +162,7 @@ def main():
     )
     REPORT_PATH.write_text(report_text, encoding="utf-8")
     print(f"Report saved → {REPORT_PATH}")
-    print("\nNext step: python untils/build_cpe_index.py")
+    print("\nNext step: python utils/build_cpe_index.py")
 
 
 if __name__ == "__main__":

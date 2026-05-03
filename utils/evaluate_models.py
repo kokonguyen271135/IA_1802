@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# untils/evaluate_models.py
+﻿#!/usr/bin/env python3
+# utils/evaluate_models.py
 
 """
 Evaluate & Compare All Severity Classification Models
@@ -18,8 +18,8 @@ Outputs
 
 Usage
 -----
-    python untils/evaluate_models.py
-    python untils/evaluate_models.py --samples 500   # use subset (faster)
+    python utils/evaluate_models.py
+    python utils/evaluate_models.py --samples 500   # use subset (faster)
 
 Academic purpose
 ----------------
@@ -155,7 +155,7 @@ def evaluate_tfidf(test_rows: list[dict]) -> dict | None:
     try:
         from severity_classifier import predict, is_available
         if not is_available():
-            print("  [SKIP] Model not found. Run: python untils/train_severity_model.py")
+            print("  [SKIP] Model not found. Run: python utils/train_severity_model.py")
             return None
     except ImportError as e:
         print(f"  [SKIP] Import error: {e}")
@@ -186,7 +186,7 @@ def evaluate_bert(test_rows: list[dict]) -> dict | None:
     try:
         from bert_severity_classifier import predict, is_available, get_meta
         if not is_available():
-            print("  [SKIP] Model not found. Run: python untils/finetune_bert_severity.py")
+            print("  [SKIP] Model not found. Run: python utils/finetune_bert_severity.py")
             return None
         meta = get_meta()
         print(f"  Base model: {meta.get('base_model', 'unknown')}")
@@ -341,7 +341,7 @@ def main():
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f"\n[ERR] Dataset not found: {dataset_path}")
-        print("      Run: python untils/build_training_data.py")
+        print("      Run: python utils/build_training_data.py")
         sys.exit(1)
 
     print("\n[Data] Loading test split …")
@@ -370,7 +370,7 @@ def main():
     if not results:
         print("\n[WARN] No models available for evaluation.")
         print("       Train models first:")
-        print("         python untils/run_training_pipeline.py")
+        print("         python utils/run_training_pipeline.py")
         sys.exit(0)
 
     # ── Generate reports ──

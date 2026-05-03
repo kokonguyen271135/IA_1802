@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# untils/run_training_pipeline.py
+﻿#!/usr/bin/env python3
+# utils/run_training_pipeline.py
 
 """
 Master Training Pipeline
@@ -18,19 +18,19 @@ Each step is skipped if its output already exists (--force to override).
 Usage
 -----
     # Run all steps (uses existing outputs if present)
-    python untils/run_training_pipeline.py
+    python utils/run_training_pipeline.py
 
     # Rebuild everything from scratch
-    python untils/run_training_pipeline.py --force
+    python utils/run_training_pipeline.py --force
 
     # Download full NVD dataset first (recommended for thesis)
-    python untils/run_training_pipeline.py --bulk-data
+    python utils/run_training_pipeline.py --bulk-data
 
     # Skip BERT fine-tuning (CPU-only environment)
-    python untils/run_training_pipeline.py --skip-bert
+    python utils/run_training_pipeline.py --skip-bert
 
     # With NVD API key (10x faster data collection)
-    NVD_API_KEY=your_key python untils/run_training_pipeline.py --bulk-data
+    NVD_API_KEY=your_key python utils/run_training_pipeline.py --bulk-data
 
 Dataset Sources
 ---------------

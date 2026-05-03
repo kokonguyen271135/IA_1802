@@ -1,11 +1,11 @@
-# backend/bert_severity_classifier.py
+﻿# backend/bert_severity_classifier.py
 
 """
 Fine-tuned BERT CVE Severity Classifier
 =========================================
 
 Loads the fine-tuned DistilBERT (or SecBERT) model saved by:
-    python untils/finetune_bert_severity.py
+    python utils/finetune_bert_severity.py
 
 Replaces the TF-IDF + Logistic Regression classifier with a
 transformer-based model trained on NVD CVE descriptions.
@@ -59,7 +59,7 @@ def _load():
     if not _MODEL_DIR.exists():
         logger.info(
             "[BERTSeverity] Model not found at %s\n"
-            "               Run: python untils/finetune_bert_severity.py",
+            "               Run: python utils/finetune_bert_severity.py",
             _MODEL_DIR,
         )
         return

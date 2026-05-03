@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# untils/download_models.py
+﻿#!/usr/bin/env python3
+# utils/download_models.py
 
 """
 Pre-download all AI/ML models used by the CVE Scanner.
@@ -13,7 +13,7 @@ Models downloaded:
 
 Usage:
     cd IA_1802
-    python untils/download_models.py
+    python utils/download_models.py
 
 All models are cached to ~/.cache/huggingface/hub/ by default.
 """

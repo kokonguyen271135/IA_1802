@@ -1,10 +1,10 @@
-# backend/severity_classifier.py
+﻿# backend/severity_classifier.py
 
 """
 Severity Classifier — inference module.
 
 Loads models/severity_clf.pkl (TF-IDF + Logistic Regression pipeline)
-trained by untils/train_severity_model.py.
+trained by utils/train_severity_model.py.
 
 Public API
 ----------
@@ -51,7 +51,7 @@ def _load():
         print(f"[+] Severity Classifier loaded  ({len(_classes)} classes: {_classes})")
     except FileNotFoundError:
         print(f"[i] Severity Classifier: model not found at {_MODEL_PATH}")
-        print("    Run:  python untils/train_severity_model.py")
+        print("    Run:  python utils/train_severity_model.py")
     except ImportError:
         print("[i] Severity Classifier: scikit-learn not installed")
     except Exception as exc:
@@ -84,7 +84,7 @@ def predict(description: str, vector_string: str = "") -> dict:
     try:
         import numpy as np
 
-        # Feature engineering — mirror untils/train_severity_model.py
+        # Feature engineering — mirror utils/train_severity_model.py
         vscore_tokens = _vectorize_cvss(vector_string)
         text = f"{description} {vscore_tokens}".strip()
 

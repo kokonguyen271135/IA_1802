@@ -1,4 +1,4 @@
-"""
+﻿"""
 Software Vulnerability Assessment Tool
 Flask Web Server
 
@@ -128,7 +128,7 @@ def init_app():
     if sem_available(): 
         print("[+] Semantic CPE Matcher (FAISS): ENABLED")
     else:
-        print("[i] Semantic CPE Matcher: DISABLED (run: python untils/build_cpe_index.py)")
+        print("[i] Semantic CPE Matcher: DISABLED (run: python utils/build_cpe_index.py)")
 
     sv = severity_status()
     if sv['available']:

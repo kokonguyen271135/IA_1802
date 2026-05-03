@@ -1,4 +1,4 @@
-# backend/cwe_predictor.py
+﻿# backend/cwe_predictor.py
 
 """
 Track 3 — CWE Prediction from PE Static Features
@@ -370,7 +370,7 @@ class CWEClassifier:
     """
     SecBERT fine-tuned on NVD CVE descriptions → CWE categories.
 
-    Trained via: python untils/train_cwe_classifier.py
+    Trained via: python utils/train_cwe_classifier.py
     Model saved at: models/bert_cwe/
 
     Inference:

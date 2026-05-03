@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# untils/train_cwe_classifier.py
+﻿#!/usr/bin/env python3
+# utils/train_cwe_classifier.py
 
 """
 Fine-tune SecBERT for CWE Category Classification (Track 3)
@@ -33,13 +33,13 @@ Output:
 Usage
 -----
     # Recommended
-    python untils/train_cwe_classifier.py
+    python utils/train_cwe_classifier.py
 
     # CPU-only (slower, fewer epochs)
-    python untils/train_cwe_classifier.py --model distilbert-base-uncased --epochs 2 --batch 8
+    python utils/train_cwe_classifier.py --model distilbert-base-uncased --epochs 2 --batch 8
 
     # Top-30 CWEs instead of top-20
-    python untils/train_cwe_classifier.py --top-cwes 30
+    python utils/train_cwe_classifier.py --top-cwes 30
 
 Academic References
 -------------------
@@ -519,7 +519,7 @@ def main():
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f"\n[ERR] Dataset not found: {dataset_path}")
-        print("      Run first: python untils/build_training_data.py")
+        print("      Run first: python utils/build_training_data.py")
         sys.exit(1)
 
     print(f"\n[1/3] Loading CWE dataset: {dataset_path}")

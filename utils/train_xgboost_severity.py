@@ -1,4 +1,4 @@
-# untils/train_xgboost_severity.py
+﻿# utils/train_xgboost_severity.py
 
 """
 Train XGBoost CVE Severity Classifier.
@@ -36,7 +36,7 @@ def main():
 
     if not TRAIN_CSV.exists():
         print(f"\n[ERROR] Training data not found: {TRAIN_CSV}")
-        print("Run first: python untils/build_training_data.py")
+        print("Run first: python utils/build_training_data.py")
         sys.exit(1)
 
     df = pd.read_csv(TRAIN_CSV)

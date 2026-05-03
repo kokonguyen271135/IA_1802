@@ -1,4 +1,4 @@
-# backend/xgboost_severity_classifier.py
+﻿# backend/xgboost_severity_classifier.py
 
 """
 XGBoost CVE Severity Classifier
@@ -141,7 +141,7 @@ def train(force: bool = False) -> bool:
     train_csv = _ROOT / "data" / "training" / "cve_severity_train.csv"
     if not train_csv.exists():
         logger.warning("[XGBoost] Training data not found: %s", train_csv)
-        logger.warning("[XGBoost] Run: python untils/build_training_data.py")
+        logger.warning("[XGBoost] Run: python utils/build_training_data.py")
         return False
 
     try:

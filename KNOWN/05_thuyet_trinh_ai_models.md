@@ -1,4 +1,4 @@
-# Nội dung thuyết trình — Phần AI Models
+﻿# Nội dung thuyết trình — Phần AI Models
 
 ---
 
@@ -289,7 +289,7 @@ Ensemble score:
 > Cosine similarity trong không gian embedding là metric chuẩn của NLP. Threshold (0.72 / 0.55 / 0.50 / 0.30) được chọn dựa trên domain knowledge bảo mật và thực nghiệm trên tập CVE thực tế.
 
 **"EMBER 2017 có còn phù hợp năm 2024–2025 không?"**
-> Dataset vẫn là benchmark chuẩn công nghiệp. Các features tĩnh của PE (headers, imports, entropy) không thay đổi theo thời gian. Hệ thống có pipeline retrain sẵn (`untils/retrain_xgboost.py`) để cập nhật khi có dữ liệu mới.
+> Dataset vẫn là benchmark chuẩn công nghiệp. Các features tĩnh của PE (headers, imports, entropy) không thay đổi theo thời gian. Hệ thống có pipeline retrain sẵn (`utils/retrain_xgboost.py`) để cập nhật khi có dữ liệu mới.
 
 **"Tại sao chọn SecBERT thay vì BERT thông thường?"**
 > SecBERT được pre-train trên cybersecurity corpus — hiểu đặc thù ngôn ngữ bảo mật tốt hơn, tránh phải fine-tune lại từ đầu trên domain mới. Ví dụ: "heap boundary check" và "buffer overflow" có embedding gần nhau trong SecBERT, còn BERT thường thì không.
