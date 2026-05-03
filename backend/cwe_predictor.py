@@ -626,6 +626,17 @@ class CWEPredictor:
         (r"Internet\s+Explorer\s+[\d\.]+",  ("microsoft", "internet_explorer")),
     ]
 
+    # CWEs that require concrete string evidence in the file before being predicted.
+    # Prevents e.g. CWE-798 "Hardcoded Credentials" from firing on a pure keylogger
+    # that has no password/token strings whatsoever.
+    _CWE_EVIDENCE_REQUIRED: dict[str, list[str]] = {
+        "CWE-798": ["password", "credential", "passwd", "username", "secret", "apikey", "api_key", "token"],
+        "CWE-259": ["password", "credential", "passwd", "secret"],
+        "CWE-321": ["key", "crypto", "aes", "rsa", "private"],
+        "CWE-312": ["password", "credential", "secret", "sensitive"],
+        "CWE-311": ["encrypt", "tls", "ssl", "https", "certificate"],
+    }
+
     def __init__(self, nvd_api, max_cves_per_cwe: int = 20, top_cwes: int = 3):
         """
         Parameters
@@ -822,6 +833,27 @@ class CWEPredictor:
         ("haxx", "libcurl"),
         ("microsoft", "visual_c++"),
     }
+
+    def _cwe_passes_evidence_check(self, cwe_id: str, analysis: dict) -> bool:
+        """
+        Veto a CWE prediction when the file contains no string evidence for it.
+
+        Example: CWE-798 (Hardcoded Credentials) should not fire on a keylogger
+        that has zero password/credential strings — the ML classifier sees
+        process-injection + keylogging text and misfires on credential-related CWEs.
+        """
+        required_terms = self._CWE_EVIDENCE_REQUIRED.get(cwe_id)
+        if not required_terms:
+            return True  # no evidence requirement for this CWE
+
+        strings = analysis.get("strings", {}) or {}
+        text_pool: list[str] = []
+        for v in strings.values():
+            if isinstance(v, list):
+                text_pool.extend(str(x).lower() for x in v)
+
+        pool_text = " ".join(text_pool)
+        return any(term in pool_text for term in required_terms)
 
     def _predict_cwes(self, analysis: dict) -> tuple[list[dict], str]:
         """
@@ -1185,10 +1217,33 @@ class CWEPredictor:
                 "summary":           "No behavioral indicators detected — cannot predict CWE.",
             }
 
+        # Evidence veto: drop CWEs with no supporting string evidence in the file
+        vetoed = []
+        kept   = []
+        for p in predicted:
+            if self._cwe_passes_evidence_check(p["cwe_id"], analysis):
+                kept.append(p)
+            else:
+                vetoed.append(p["cwe_id"])
+        predicted = kept
+        if vetoed:
+            print(f"[CWE] Evidence veto — skipped (no string support): {', '.join(vetoed)}")
+
+        if not predicted:
+            return {
+                "predicted_cwes":    [],
+                "cve_results":       [],
+                "total_cves":        0,
+                "prediction_method": pred_method,
+                "method":            "cwe_behavior_prediction",
+                "summary":           "No behavioral indicators with supporting evidence — cannot predict CWE.",
+            }
+
         # Log predictions
         print(f"[CWE] Predicted {len(predicted)} CWE(s) via {pred_method}:")
         for p in predicted:
-            print(f"      {p['cwe_id']} ({p['label']}, conf={p['confidence']:.2f}): {p['name']}")
+            src = f" [{p.get('source', '')}]" if p.get('source') else ""
+            print(f"      {p['cwe_id']} ({p['label']}, conf={p['confidence']:.2f}): {p['name']}{src}")
 
         # Step 2: Query NVD from behavior only.
         # Prediction intentionally ignores CPE / product targeting rules.
