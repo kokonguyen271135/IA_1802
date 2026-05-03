@@ -884,7 +884,17 @@ def _analyze_pe(filepath: Path, filename: str):
                 cwe_cves = _enrich_cves(cwe_cves, result)
                 print(f"[PE][CWE] After enrich: {len(cwe_cves)}")
 
-                # Select: sort by relevance score DESC, keep top 10
+                # SecBERT veto: drop CVEs with LOW/MINIMAL semantic relevance
+                _VETO_LABELS = {'LOW', 'MINIMAL'}
+                cwe_vetoed = [
+                    c for c in cwe_cves
+                    if c.get('relevance', {}).get('label') not in _VETO_LABELS
+                ]
+                if cwe_vetoed:
+                    cwe_cves = cwe_vetoed
+                print(f"[PE][CWE] After SecBERT veto: {len(cwe_cves)}")
+
+                # Sort by relevance score DESC, keep top 10
                 cwe_cves.sort(
                     key=lambda c: (
                         c.get('relevance', {}).get('score', 0.0),
