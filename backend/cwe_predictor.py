@@ -1222,9 +1222,7 @@ class CWEPredictor:
         else:
             print("[CWE] No strong EMBER/behavior evidence — skipping behavior keyword search")
 
-        # Step 4: Hard behavioral sanity filter, then rule-based pre-scoring.
-        # SecBERT semantic re-scoring is applied by app.py after this returns —
-        # so we intentionally skip the old min_score filter and return up to 30 raw CVEs.
+        # Step 4: Relevance scoring + filtering
         all_cves = [
             c for c in all_cves
             if self._passes_behavioral_sanity(c, analysis, [])
@@ -1232,10 +1230,31 @@ class CWEPredictor:
 
         active_behaviors = list(analysis.get("imports", {}).get("by_category", {}).keys())
         for cve in all_cves:
-            # Stored as tie-break fallback; SecBERT relevance will be added by app.py.
-            cve["_rule_relevance_score"] = self._score_relevance(cve, active_behaviors, analysis)
+            cve["_relevance_score"] = self._score_relevance(cve, active_behaviors, analysis)
 
-        all_cves = all_cves[:30]
+        # Filter out unrelated CVEs — keep only those with a positive relevance score,
+        # or all with score >= 0 as a fallback when the file has no suspicious APIs
+        has_suspicious_apis = bool(analysis.get("imports", {}).get("suspicious", []))
+        min_score = 0.20 if has_suspicious_apis else 0.0
+        min_score = max(min_score, 0.55)
+        filtered = [c for c in all_cves if c.get("_relevance_score", 0) >= min_score]
+
+        # Fallback: this prediction path does not use target/CPE,
+        # so if filtering removes everything, return empty rather than pushing wrong generic CVEs.
+        if filtered:
+            all_cves = filtered
+        else:
+            all_cves = []
+
+        all_cves.sort(
+            key=lambda c: (
+                c.get("_relevance_score", 0) * 0.5
+                + (c.get("matched_cwe_confidence") or 0) * 0.3
+                + (c.get("cvss_score") or 0) / 10 * 0.2
+            ),
+            reverse=True,
+        )
+        all_cves = all_cves[:3]
 
         # Step 5: Build summary
         top_cwe_names = ", ".join(
