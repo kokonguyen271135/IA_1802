@@ -857,11 +857,22 @@ class CWEPredictor:
 
     def _predict_cwes(self, analysis: dict) -> tuple[list[dict], str]:
         """
-        Predict CWEs — try the ML model first, fall back to rule-based.
+        Hybrid CWE prediction: ML model + rule-based, merged by max confidence.
 
-        Returns (predictions, method_used)
+        Always runs rule-based. If ML model is available, runs it too and merges:
+          - CWE in both   → source='both', confidence=max(ml, rule)
+          - CWE in ML only → source='ml'
+          - CWE in rule only → source='rule'
+
+        Returns (predictions sorted by confidence DESC, method_label)
         """
-        # ── Try the ML model first ───────────────────────────────────────────
+        # ── Rule-based (always runs) ──────────────────────────────────────────
+        rule_preds = predict_cwe(analysis, top_k=self.top_cwes + 2)
+        for p in rule_preds:
+            p["source"] = "rule"
+
+        # ── ML model ─────────────────────────────────────────────────────────
+        ml_preds: list[dict] = []
         if self._classifier.is_available():
             try:
                 from secbert_cve_scorer import build_profile_text
@@ -874,14 +885,31 @@ class CWEPredictor:
                         temperature=self.temperature,
                         min_threshold=0.15,
                     )
-                    if ml_preds:
-                        return ml_preds, "secbert_cwe_classifier"
+                    for p in ml_preds:
+                        p["source"] = "ml"
             except Exception as e:
-                print(f"[CWE ML] Prediction failed, using rule-based: {e}")
+                print(f"[CWE ML] Prediction failed, using rule-based only: {e}")
 
-        # ── Rule-based fallback ───────────────────────────────────────────────
-        rule_preds = predict_cwe(analysis, top_k=self.top_cwes + 2)
-        return rule_preds, "rule_based"
+        if not ml_preds:
+            return rule_preds, "rule_based"
+
+        # ── Merge: rule first, then ML overwrites/upgrades ────────────────────
+        merged: dict[str, dict] = {}
+        for p in rule_preds:
+            merged[p["cwe_id"]] = dict(p)
+
+        for p in ml_preds:
+            cid = p["cwe_id"]
+            if cid in merged:
+                merged[cid]["source"] = "both"
+                if p["confidence"] > merged[cid]["confidence"]:
+                    merged[cid]["confidence"] = p["confidence"]
+                    merged[cid]["label"] = p["label"]
+            else:
+                merged[cid] = dict(p)
+
+        predicted = sorted(merged.values(), key=lambda x: -x["confidence"])[: self.top_cwes + 2]
+        return predicted, "hybrid (ml + rule)"
 
     def _detect_target_software(self, analysis: dict) -> list[dict]:
         """
