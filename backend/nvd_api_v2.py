@@ -25,13 +25,11 @@ class NVDAPIv2:
         Args:
             api_key: NVD API key (paste directly here or load from environment)
         """
-        # ====================================================================
-        # 🔑 HARDCODED API KEY GOES HERE
-        # ====================================================================
-        # Uncomment and paste your API key:
-        # self.api_key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        self.api_key = "0716c34c-ae5d-4cca-a01d-ef86173b304d"  # Or pass it in at construction time
-        # ====================================================================
+        # API key: pass explicitly, or read from NVD_API_KEY env var (see .env.example)
+        if api_key is None:
+            import os as _os
+            api_key = _os.getenv('NVD_API_KEY')
+        self.api_key = api_key
         
         self.base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
         
