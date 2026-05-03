@@ -392,24 +392,60 @@ class CWEClassifier:
 
     def _load(self) -> None:
         """Load fine-tuned model. Silent fail if not trained yet."""
-        if not self.MODEL_DIR.exists() or not self.META_FILE.exists():
+        if not self.MODEL_DIR.exists():
+            print(f"[CWE ML] Model folder not found: {self.MODEL_DIR}")
+            print(f"[CWE ML]   Run: python utils/train_cwe_classifier.py")
+            return
+        if not self.META_FILE.exists():
+            print(f"[CWE ML] Meta file not found: {self.META_FILE}")
+            return
+        if not (self.MODEL_DIR / "model.safetensors").exists() and \
+           not (self.MODEL_DIR / "pytorch_model.bin").exists():
+            print(f"[CWE ML] Weights file missing in {self.MODEL_DIR}")
             return
 
         try:
+            import json
             import torch
-            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            from transformers import (
+                AutoConfig,
+                AutoTokenizer,
+                AutoModelForSequenceClassification,
+            )
 
             with open(self.META_FILE) as f:
-                import json
                 meta = json.load(f)
 
             self._max_length = meta.get("max_length", 256)
             self._id2label   = {int(k): v for k, v in meta["id2label"].items()}
+            base_model       = meta.get("base_model", "jackaduma/SecBERT")
 
-            self._tokenizer = AutoTokenizer.from_pretrained(str(self.MODEL_DIR))
-            self._model     = AutoModelForSequenceClassification.from_pretrained(
-                str(self.MODEL_DIR)
-            )
+            # ── Tokenizer: local folder first, fallback to HuggingFace base ──
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(str(self.MODEL_DIR))
+            except Exception:
+                print(f"[CWE ML] Tokenizer not in local folder — loading from {base_model}")
+                self._tokenizer = AutoTokenizer.from_pretrained(base_model)
+
+            # ── Model: if config.json missing, rebuild from base model + weights ──
+            if (self.MODEL_DIR / "config.json").exists():
+                self._model = AutoModelForSequenceClassification.from_pretrained(
+                    str(self.MODEL_DIR)
+                )
+            else:
+                print(f"[CWE ML] config.json missing — rebuilding from {base_model} + local weights")
+                config = AutoConfig.from_pretrained(
+                    base_model,
+                    num_labels=len(self._id2label),
+                    id2label={str(k): v for k, v in self._id2label.items()},
+                    label2id={v: k for k, v in self._id2label.items()},
+                )
+                self._model = AutoModelForSequenceClassification.from_pretrained(
+                    str(self.MODEL_DIR),
+                    config=config,
+                    ignore_mismatched_sizes=True,
+                )
+
             self._model.eval()
             self._torch     = torch
             self._available = True
