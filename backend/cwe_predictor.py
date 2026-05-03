@@ -1170,7 +1170,7 @@ class CWEPredictor:
                     all_cves.append(cve)
 
         min_cwe_conf = 0.55
-        strict_behavior_conf = 0.75
+        strict_behavior_conf = 0.55
 
         # Only query NVD for CWEs with sufficient confidence; otherwise return CWE hints only.
         cwes_to_query = [p for p in predicted if p["confidence"] >= min_cwe_conf][:min(self.top_cwes, 5)]
@@ -1239,7 +1239,7 @@ class CWEPredictor:
                 if not kw:
                     continue
                 print(f"[CWE] Searching: '{behavior}' → keyword='{kw}'")
-                cves = self.nvd_api.search_by_keyword(kw, max_results=3)
+                cves = self.nvd_api.search_by_keyword(kw, max_results=15)
                 new = [c for c in cves if c.get("cve_id") not in seen_beh_ids]
                 for c in new:
                     c["cwe_source"] = f"behavior:{behavior}"
@@ -1259,17 +1259,20 @@ class CWEPredictor:
         for cve in all_cves:
             cve["_relevance_score"] = self._score_relevance(cve, active_behaviors, analysis)
 
-        # Filter out unrelated CVEs — keep only those with a positive relevance score,
-        # or all with score >= 0 as a fallback when the file has no suspicious APIs
         has_suspicious_apis = bool(analysis.get("imports", {}).get("suspicious", []))
-        min_score = 0.20 if has_suspicious_apis else 0.0
-        min_score = max(min_score, 0.55)
+        min_score = 0.15 if has_suspicious_apis else 0.10
         filtered = [c for c in all_cves if c.get("_relevance_score", 0) >= min_score]
 
-        # Fallback: this prediction path does not use target/CPE,
-        # so if filtering removes everything, return empty rather than pushing wrong generic CVEs.
         if filtered:
             all_cves = filtered
+        elif all_cves:
+            # Filter wiped everything — keep top-5 by raw score rather than returning empty
+            all_cves = sorted(
+                all_cves,
+                key=lambda c: c.get("_relevance_score", 0),
+                reverse=True,
+            )[:5]
+            print(f"[CWE] Filter wipe safety net — keeping top-5 by raw score")
         else:
             all_cves = []
 
@@ -1281,7 +1284,7 @@ class CWEPredictor:
             ),
             reverse=True,
         )
-        all_cves = all_cves[:3]
+        all_cves = all_cves[:10]
 
         # Step 5: Build summary
         top_cwe_names = ", ".join(
