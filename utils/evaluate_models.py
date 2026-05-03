@@ -42,6 +42,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(ROOT / "utils" / "baselines"))  # TF-IDF & zero-shot baselines
 
 LABEL_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 LABEL2ID    = {l: i for i, l in enumerate(LABEL_ORDER)}
