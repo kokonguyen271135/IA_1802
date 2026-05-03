@@ -102,14 +102,10 @@ def init_app():
     print("    AI + CVE Database Edition")
     print("=" * 70)
 
-    # NVD API key — set via NVD_API_KEY environment variable (see .env.example)
-    api_key = os.getenv('NVD_API_KEY')
-
-    if not api_key:
-        print("[!] WARNING: NVD_API_KEY env var not set — queries will be slow (5 req/30s)")
-        print("[!]          Set it in a .env file or export NVD_API_KEY=<your-key>")
-
-    nvd_api       = NVDAPIv2(api_key)
+    nvd_api       = NVDAPIv2(os.getenv('NVD_API_KEY'))
+    if not nvd_api.api_key:
+        print("[!] WARNING: No NVD API key — queries will be slow (5 req/30s)")
+        print("[!]          Set NVD_API_KEY in .env or hardcode in nvd_api_v2.py")
     cpe_extractor = CPEExtractor()
     pe_analyzer   = PEStaticAnalyzer()
     pkg_analyzer  = PackageAnalyzer()
