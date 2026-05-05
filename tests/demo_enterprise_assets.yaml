@@ -1,0 +1,33 @@
+# Demo file for Scenario 3 (Enterprise): asset criticality config.
+# Used by contextual scorer to weight CVE priority by asset importance.
+services:
+  - name: payment-api
+    requirements: payment/requirements.txt
+    criticality: CRITICAL
+    public_facing: true
+    description: "Xử lý thanh toán, PCI-DSS scope"
+
+  - name: internal-dashboard
+    package_json: dashboard/package.json
+    criticality: MEDIUM
+    public_facing: false
+    description: "Dashboard nội bộ cho admin"
+
+  - name: legacy-erp
+    pom_xml: erp/pom.xml
+    criticality: HIGH
+    public_facing: false
+    description: "ERP cũ, không thể thay thế ngắn hạn"
+
+binaries:
+  - path: scanner.exe
+    criticality: HIGH
+    description: "Endpoint scanner deploy trên 500 máy"
+
+  - path: updater.exe
+    criticality: CRITICAL
+    description: "Auto-updater chạy với quyền SYSTEM"
+
+  - path: tray_app.exe
+    criticality: LOW
+    description: "System tray app, không có quyền cao"

@@ -1,0 +1,12 @@
+# Demo file for Scenario 2 (SME / DevOps): vulnerable Python dependencies.
+# INTENTIONALLY OUTDATED versions — for vulnerability scanner demo only.
+Django==2.0.1
+requests==2.18.0
+PyYAML==3.13
+Pillow==5.0.0
+urllib3==1.22
+flask==0.12.2
+Jinja2==2.10
+cryptography==2.3
+lxml==4.2.3
+SQLAlchemy==1.2.0
