@@ -1055,20 +1055,21 @@ function renderPECVEs(data) {
     if (!cpe) {
         const cweAnalysis   = data.cwe_analysis || {};
         const rejectedCandidate = cpeInfo.candidate_cpe
-            ? ` Candidate rejected: ${cpeInfo.candidate_cpe}` +
-              (cpeInfo.confidence ? ` (${String(cpeInfo.confidence).toUpperCase()} confidence).` : '.')
+            ? `<br>Candidate rejected: ${escapeHtml(cpeInfo.candidate_cpe)}` +
+              (cpeInfo.confidence ? ` (${escapeHtml(String(cpeInfo.confidence).toUpperCase())} confidence).` : '.')
             : '';
 
-        const reason = cpeError
-            ? `CPE extraction failed: ${cpeError}`
-            : `${cpeInfo.error || 'Could not resolve a reliable software identity/version from this file.'}${rejectedCandidate}`;
+        const reasonBase = cpeError
+            ? `CPE extraction failed: ${escapeHtml(cpeError)}`
+            : escapeHtml(cpeInfo.error || 'Could not resolve a reliable software identity/version from this file.');
+
         cpeInfoEl.style.display = 'none';
         cpeBadge.style.display  = 'none';
 
         listEl.innerHTML = '';
         const banner = document.createElement('p');
         banner.style.cssText = 'color:#f59e0b; padding:10px;';
-        banner.innerHTML = `<i class="fas fa-exclamation-triangle"></i>&nbsp;${escapeHtml(reason)}`;
+        banner.innerHTML = `<i class="fas fa-exclamation-triangle"></i>&nbsp;${reasonBase}${rejectedCandidate}`;
         listEl.appendChild(banner);
         _appendPECWEBadges(listEl, cweAnalysis);
         _appendBehavioralCVESuggestions(listEl, data);
