@@ -1,4 +1,4 @@
-"""
+﻿"""
 Software Vulnerability Assessment Tool
 Flask Web Server
 
@@ -1766,7 +1766,7 @@ def _generate_recommendations(cves: list, stats: dict, context: str = 'file',
     def _is_network_cve(cve: dict) -> bool:
         attack_vector = (cve.get('attack_vector') or '').upper()
         vec = (cve.get('vector_string') or '').upper()
-        return attack_vector in ('NETWORK', 'ADJACENT_NETWORK') or 'AV:N' in vec
+        return attack_vector in ('NETWORK', 'ADJACENT_NETWORK') or 'A   :N' in vec
 
     def _is_no_auth_cve(cve: dict) -> bool:
         privs = (cve.get('privileges_required') or '').upper()

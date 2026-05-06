@@ -609,7 +609,7 @@ class CWEPredictor:
                                   "obfuscat", "packer", "packed"],
         "service_manipulation": ["service", "daemon", "scm", "persistence",
                                   "startup", "autorun"],
-        "dynamic_loading":      ["dynamic", "loadlibrary", "reflective", "loader"],
+        "dynamic_loading":      ["dynamic", "loadlibrary", "reflective", "loader", "dll hijack", "hijacking", "dll inject"],
     }
 
     # Terms that appear only in web/scripting CVEs — penalize if present without
@@ -896,6 +896,10 @@ class CWEPredictor:
         "InternetOpen":        ["http", "network", "download", "remote"],
         "URLDownloadToFile":   ["download", "remote", "http"],
         "WSAStartup":          ["network", "socket", "remote"],
+        "GetProcAddress":      ["dll", "dynamic", "module", "function", "inject", "hijack", "load"],
+        "GetKeyState":         ["keylog", "keystroke", "input", "keyboard"],
+        "GetKeyboardState":    ["keylog", "keystroke", "input", "keyboard"],
+        "GetForegroundWindow": ["keylog", "window", "input", "spy"],
     }
 
     def _extract_year(self, published: str | None) -> int | None:
@@ -1074,7 +1078,7 @@ class CWEPredictor:
             score -= 0.20
 
         # ── 4. Windows CPE bonus ──────────────────────────────────────────────
-        for cpe in (cve.get("cpe_list") or []):
+        for cpe in (cve.get("cpes") or []):
             if "microsoft:windows" in str(cpe).lower():
                 score += 0.20
                 break
@@ -1236,7 +1240,7 @@ class CWEPredictor:
         # or all with score >= 0 as a fallback when the file has no suspicious APIs
         has_suspicious_apis = bool(analysis.get("imports", {}).get("suspicious", []))
         min_score = 0.20 if has_suspicious_apis else 0.0
-        min_score = max(min_score, 0.55)
+        min_score = max(min_score, 0.30)
         filtered = [c for c in all_cves if c.get("_relevance_score", 0) >= min_score]
 
         # Fallback: this prediction path does not use target/CPE,

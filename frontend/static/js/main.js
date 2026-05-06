@@ -1012,23 +1012,6 @@ function _appendBehavioralCVESuggestions(listEl, data) {
     if (suggestions.length === 0) return;
 
     const stats = data.behavioral_cve_statistics || {};
-    const cweAnalysis = data.cwe_analysis || {};
-    const block = document.createElement('div');
-    block.className = 'behavioral-cve-hint-block';
-    block.innerHTML = `
-        <div class="behavioral-cve-hint-title">
-            <strong>Exploratory CVE Suggestions</strong>
-            <span class="behavioral-cve-hint-badge">Not counted as confirmed matches</span>
-        </div>
-        <p class="behavioral-cve-hint-text">
-            These NVD entries were retrieved from behavioral CWE hints when product/version evidence was insufficient.
-            Use them as research leads only, not as confirmed CVEs for this software version.
-        </p>
-        ${cweAnalysis.summary ? `<p class="behavioral-cve-hint-summary">${escapeHtml(_truncateText(cweAnalysis.summary, 260))}</p>` : ''}
-        <p class="behavioral-cve-hint-meta">
-            Suggestions shown: ${suggestions.length}${stats.total_cves ? ` of ${stats.total_cves}` : ''}
-        </p>`;
-    listEl.appendChild(block);
     _renderPECVEList(listEl, suggestions, stats, 'Exploratory CVE Suggestions');
 }
 
