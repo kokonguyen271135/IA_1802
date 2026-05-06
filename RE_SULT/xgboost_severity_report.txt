@@ -1,0 +1,34 @@
+XGBoost CVE Severity Classifier - Training Report
+====================================================
+Classifier       : XGBoost 3.2.0
+Features         : TF-IDF (5,000) + CVSS vector (8 features)
+Dataset          : cve_severity_train.csv
+Total samples    : 32,246 (after deduplication)
+Training samples : 25,796
+Test samples     : 6,450
+Training time    : 111.2s
+
+Hyperparameters:
+  n_estimators   : 200
+  max_depth      : 6
+  learning_rate  : 0.1
+  subsample      : 0.8
+  colsample_bytree: 0.8
+
+Test accuracy    : 0.8924 (89.24%)
+Test macro-F1    : 0.8608 (86.08%)
+Inference speed  : 0.01 ms/sample
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    CRITICAL     0.9965    0.9880    0.9922       582
+        HIGH     0.9361    0.8798    0.9071      2829
+         LOW     0.7313    0.6049    0.6622       324
+      MEDIUM     0.8473    0.9193    0.8818      2715
+
+    accuracy                         0.8924      6450
+   macro avg     0.8778    0.8480    0.8608      6450
+weighted avg     0.8939    0.8924    0.8918      6450
+
+Model saved to   : models/xgboost_severity.pkl
