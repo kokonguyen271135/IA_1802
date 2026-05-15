@@ -6,6 +6,7 @@ Query CVEs directly from the NVD API by CPE (does not go through junction.csv).
 Official NVD API: https://nvd.nist.gov/developers/vulnerabilities
 """
 
+import os
 import requests
 import time
 import json
@@ -25,13 +26,7 @@ class NVDAPIv2:
         Args:
             api_key: NVD API key (paste directly here or load from environment)
         """
-        # ====================================================================
-        # 🔑 HARDCODED API KEY GOES HERE
-        # ====================================================================
-        # Uncomment and paste your API key:
-        # self.api_key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        self.api_key = "0716c34c-ae5d-4cca-a01d-ef86173b304d"  # Or pass it in at construction time
-        # ====================================================================
+        self.api_key = api_key or os.getenv("NVD_API_KEY")
         
         self.base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
         

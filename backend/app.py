@@ -102,9 +102,8 @@ def init_app():
     print("    AI + CVE Database Edition")
     print("=" * 70)
 
-    # NVD API key (set here or via NVD_API_KEY env var)
-    API_KEY = "c95dd30e-7d9f-48b7-b9b9-0e799b0cd859"
-    api_key = API_KEY or os.getenv('NVD_API_KEY')
+    # NVD API key loaded from environment (set NVD_API_KEY in .env)
+    api_key = os.getenv('NVD_API_KEY')
 
     if not api_key:
         print("[!] WARNING: No NVD API key — queries will be slow (5 req/30s)")
